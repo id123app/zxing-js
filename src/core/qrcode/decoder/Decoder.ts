@@ -44,10 +44,6 @@ export default class Decoder {
     this.rsDecoder = new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256);
   }
 
-  // public decode(image: boolean[][]): DecoderResult /*throws ChecksumException, FormatException*/ {
-  //   return decode(image, null)
-  // }
-
   /**
    * <p>Convenience method that can decode a QR Code represented as a 2D array of booleans.
    * "true" is taken to mean a black module.</p>
@@ -61,10 +57,6 @@ export default class Decoder {
   public decodeBooleanArray(image: boolean[][], hints?: Map<DecodeHintType, any>): DecoderResult {
     return this.decodeBitMatrix(BitMatrix.parseFromBooleanArray(image), hints);
   }
-
-  // public decodeBitMatrix(bits: BitMatrix): DecoderResult /*throws ChecksumException, FormatException*/ {
-  //   return decode(bits, null)
-  // }
 
   /**
    * <p>Decodes a QR Code represented as a {@link BitMatrix}. A 1 or "true" is taken to mean a black module.</p>
@@ -166,14 +158,9 @@ export default class Decoder {
    * @throws ChecksumException if error correction fails
    */
   private correctErrors(codewordBytes: Uint8Array, numDataCodewords: number /*int*/): void /*throws ChecksumException*/ {
-    // const numCodewords = codewordBytes.length;
     // First read into an array of ints
     const codewordsInts = new Int32Array(codewordBytes);
     // TYPESCRIPTPORT: not realy necessary to transform to ints? could redesign everything to work with unsigned bytes?
-    // const codewordsInts = new Int32Array(numCodewords)
-    // for (let i = 0; i < numCodewords; i++) {
-    //   codewordsInts[i] = codewordBytes[i] & 0xFF
-    // }
     try {
       this.rsDecoder.decode(codewordsInts, codewordBytes.length - numDataCodewords);
     } catch (ignored/*: ReedSolomonException*/) {
