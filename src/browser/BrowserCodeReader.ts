@@ -919,9 +919,19 @@ export class BrowserCodeReader {
           // @ts-ignore
           document.decodeTime = decodeTime;
         }
+        // success: report result
         callbackFn(result, null);
-        // Reset lastROI if no QR code found for a while
-        this.lastROI = undefined;
+
+        // update lastROI from result points (sticky ROI)
+        try {
+          const canvas = this.getCaptureCanvas(element);
+          const roi = this.computeROIFromResultPoints(result, canvas.width, canvas.height);
+          if (roi) {
+            this.lastROI = roi;
+          }
+        } catch {
+          // ignore ROI update errors — keep existing ROI if any
+        }
 
         // Use constant frame rate regardless of success/failure
         requestAnimationFrame(loop);
@@ -945,10 +955,27 @@ export class BrowserCodeReader {
    * Gets the BinaryBitmap for ya! (and decodes it)
    */
   public decode(element: HTMLVisualMediaElement): Result {
-    // get binary bitmap for decode function
-    const binaryBitmap = this.createBinaryBitmap(element);
-
-    return this.decodeBitmap(binaryBitmap);
+    // try decode with ROI; on error, fallback once to full frame
+    let triedFullFrame = false;
+    try {
+      const binaryBitmap = this.createBinaryBitmap(element);
+      return this.decodeBitmap(binaryBitmap);
+    } catch (e) {
+      if (!triedFullFrame && this.lastROI) {
+        triedFullFrame = true;
+        // try full-frame once
+        const prevROI = this.lastROI;
+        try {
+          this.lastROI = undefined;
+          const binaryBitmap = this.createBinaryBitmap(element);
+          return this.decodeBitmap(binaryBitmap);
+        } finally {
+          // keep lastROI cleared after failed ROI decode to avoid repeated ROI-only stalls
+          this.lastROI = undefined;
+        }
+      }
+      throw e;
+    }
   }
 
   /**
@@ -975,15 +1002,16 @@ export class BrowserCodeReader {
     let src = new HTMLCanvasElementLuminanceSource(canvas, mediaElement instanceof HTMLVideoElement);
 
     if (this.options.useSmartDetect) {
-      // More generous padding for large QR codes
-      const pad = Math.max(20, Math.min(W, H) * 0.1); // 10% of min dimension
+      const calcPad = (roiW?: number, roiH?: number) => this.calcPadFromModule(roiW, roiH, W, H);
 
-      const inflate = (r: ROI) => ({
-        x: Math.max(0, r.x - pad),
-        y: Math.max(0, r.y - pad),
-        w: Math.min(W - Math.max(0, r.x - pad), r.w + 2 * pad),
-        h: Math.min(H - Math.max(0, r.y - pad), r.h + 2 * pad)
-      });
+      const inflate = (r: ROI) => {
+        const pad = calcPad(r.w, r.h);
+        const x = Math.max(0, Math.floor(r.x - pad));
+        const y = Math.max(0, Math.floor(r.y - pad));
+        const w2 = Math.min(W - x, Math.floor(r.w + 2 * pad));
+        const h2 = Math.min(H - y, Math.floor(r.h + 2 * pad));
+        return { x, y, w: w2, h: h2 };
+      };
 
       // Try ROI detection
       try {
@@ -995,9 +1023,9 @@ export class BrowserCodeReader {
 
         const roi = findCandidatesL2(gray, W, H);
         if (roi) {
-          // Validate ROI size
-          const minSize = Math.min(W, H) * 0.1; // ROI should be at least 10% of image
-          if (roi.w >= minSize && roi.h >= minSize) {
+          // Validate ROI size (allow very small, but require minimal area)
+          const minSize = Math.min(W, H) * 0.05; // 5% of min dimension
+          if (roi.w >= 2 && roi.h >= 2) {
             const r = inflate(roi);
             this.lastROI = roi;
             const roiSrc = src.crop(r.x, r.y, r.w, r.h);
@@ -1005,7 +1033,7 @@ export class BrowserCodeReader {
           }
         }
       } catch (e) {
-        // On any error, fall back to full frame
+        // On any error, fall back to full frame and clear ROI
         this.lastROI = undefined;
       }
     }
@@ -1015,7 +1043,76 @@ export class BrowserCodeReader {
   }
 
   /**
-   *
+   * Estimate padding in pixels from module size and ROI size.
+   * quietZone = 8 * module, plus growth percentage (~30% of ROI)
+   * fallback min 20-24 px.
+   */
+  private calcPadFromModule(roiW?: number, roiH?: number, W?: number, H?: number): number {
+    const MIN_PAD = 20;
+    const growPct = 0.30;
+    if (roiW && roiH && roiW > 0 && roiH > 0) {
+      // assume at least 21 modules across small QR (version 1)
+      const estModules = 21;
+      const estModule = Math.max(1, Math.min(roiW, roiH) / estModules);
+      const quietZone = 8 * estModule;
+      const grow = Math.max(0, Math.round(Math.max(roiW, roiH) * growPct));
+      const pad = Math.round(quietZone + grow);
+      const maxPad = Math.floor(Math.min(W || 0, H || 0) / 2);
+      return Math.max(MIN_PAD, Math.min(pad, Math.max(MIN_PAD, maxPad)));
+    }
+
+    // No estimate -> use safe minimum padding
+    return 24;
+  }
+
+  /**
+   * Compute ROI from decode Result points (ResultPoint[] or similar).
+   */
+  private computeROIFromResultPoints(result: Result, W: number, H: number): ROI | undefined {
+    if (!result) return undefined;
+    // obtain points array from possible shapes of Result
+    // try method getResultPoints(), or property resultPoints, or points
+    // each point may use getX/getY or x/y
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyRes: any = result as any;
+    const rawPoints = (typeof anyRes.getResultPoints === 'function' && anyRes.getResultPoints()) ||
+      anyRes.resultPoints || anyRes.points || [];
+
+    if (!rawPoints || !rawPoints.length) return undefined;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of rawPoints) {
+      if (!p) continue;
+      const x = typeof p.getX === 'function' ? p.getX() : (p.x !== undefined ? p.x : (p[0] !== undefined ? p[0] : NaN));
+      const y = typeof p.getY === 'function' ? p.getY() : (p.y !== undefined ? p.y : (p[1] !== undefined ? p[1] : NaN));
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+      return undefined;
+    }
+
+    const w = Math.max(2, Math.ceil(maxX - minX));
+    const h = Math.max(2, Math.ceil(maxY - minY));
+    const pad = this.calcPadFromModule(w, h, W, H);
+
+    const x = Math.max(0, Math.floor(minX - pad));
+    const y = Math.max(0, Math.floor(minY - pad));
+    const ww = Math.min(W - x, Math.floor(w + 2 * pad));
+    const hh = Math.min(H - y, Math.floor(h + 2 * pad));
+
+    return { x, y, w: ww, h: hh };
+  }
+
+
+
+  /**
+   * Draws the current video frame in a canvas.
    */
   protected getCaptureCanvasContext(mediaElement?: HTMLVisualMediaElement) {
     if (!this.captureCanvasContext) {
