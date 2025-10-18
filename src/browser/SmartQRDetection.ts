@@ -31,8 +31,8 @@ export function downscaleBox(src: Uint8Array, W: number, H: number, dw: number, 
 
 export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | undefined {
   // Less aggressive downscaling for large QR codes
-  const dw = Math.max(240, (W/2)|0);
-  const dh = Math.max(180, (H/2)|0);
+  const dw = Math.max(240, (W / 2) | 0);
+  const dh = Math.max(180, (H / 2) | 0);
   const L2 = downscaleBox(gray, W, H, dw, dh);
 
   const xs: number[] = [], ys: number[] = [];
@@ -40,8 +40,8 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
   // Scan more lines for better detection
   for (let y = 2; y < dh - 2; y += 1) { // Changed from y += 2 to y += 1
     let last = -1, k = 0;
-    const run = [0,0,0,0,0];
-    const row = y*dw;
+    const run = [0, 0, 0, 0, 0];
+    const row = y * dw;
 
     for (let x = 0; x < dw; x++) {
       const v = L2[row + x] < 128 ? 1 : 0;
@@ -51,24 +51,24 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
         continue;
       }
       if (v === last) {
-        run[k-1]++;
+        run[k - 1]++;
         continue;
       }
       last = v;
       run[k++] = 1;
       if (k === 5) {
-        const s = run[0]+run[1]+run[2]+run[3]+run[4];
-        const scale = s/7;
+        const s = run[0] + run[1] + run[2] + run[3] + run[4];
+        const scale = s / 7;
         // More flexible pattern matching
         const ok =
-          Math.abs(run[0]-scale) < scale*0.7 &&    // Increased tolerance
-          Math.abs(run[1]-scale) < scale*0.7 &&
-          Math.abs(run[2]-3*scale) < 3*scale*0.7 &&
-          Math.abs(run[3]-scale) < scale*0.7 &&
-          Math.abs(run[4]-scale) < scale*0.7;
+          Math.abs(run[0] - scale) < scale * 0.7 &&    // Increased tolerance
+          Math.abs(run[1] - scale) < scale * 0.7 &&
+          Math.abs(run[2] - 3 * scale) < 3 * scale * 0.7 &&
+          Math.abs(run[3] - scale) < scale * 0.7 &&
+          Math.abs(run[4] - scale) < scale * 0.7;
 
         if (ok) {
-          const cx = x - run[4] - run[3] - (run[2]>>1);
+          const cx = x - run[4] - run[3] - (run[2] >> 1);
           xs.push(cx);
           ys.push(y);
         }
@@ -85,15 +85,15 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
   // More generous bounding box
   const margin = 30;  // Increased from 20
   const minx = Math.max(0, Math.min(...xs) - margin);
-  const maxx = Math.min(dw-1, Math.max(...xs) + margin);
+  const maxx = Math.min(dw - 1, Math.max(...xs) + margin);
   const miny = Math.max(0, Math.min(...ys) - margin);
-  const maxy = Math.min(dh-1, Math.max(...ys) + margin);
+  const maxy = Math.min(dh - 1, Math.max(...ys) + margin);
 
-  const sx = W/dw, sy = H/dh;
+  const sx = W / dw, sy = H / dh;
   return {
-    x: (minx*sx)|0,
-    y: (miny*sy)|0,
-    w: ((maxx-minx)*sx)|0,
-    h: ((maxy-miny)*sy)|0
+    x: (minx * sx) | 0,
+    y: (miny * sy) | 0,
+    w: ((maxx - minx) * sx) | 0,
+    h: ((maxy - miny) * sy) | 0
   };
 }
