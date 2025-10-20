@@ -56,6 +56,10 @@
   let errorsPerSecond = 0;
 
   function decodeContinuously(codeReader, selectedDeviceId) {
+    codeReader.setFrameHintCallback(function(hint) {
+      document.getElementById('hint').innerText = hint;
+    });
+
     codeReader.decodeFromInputVideoDeviceContinuously(selectedDeviceId, 'video', (result, err) => {
       decodesPerSecond++;
       if (result) {
@@ -63,7 +67,6 @@
         // properly decoded qr code
         document.getElementById('result').textContent = result.text
         document.getElementById('charCount').innerText = result.text.length.toString();
-        document.getElementById('hint').innerText = result.getResultMetadata().get(11) ?? '--';
       }
 
       if (err) {

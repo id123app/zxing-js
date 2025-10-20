@@ -1,6 +1,5 @@
 import { BrowserCodeReader } from './BrowserCodeReader';
 import QRCodeReader from '../core/qrcode/QRCodeReader';
-import SmartQRCodeReader from '../core/qrcode/SmartQRCodeReader';
 
 /**
  * @deprecated Moving to @zxing/browser
@@ -13,6 +12,6 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * @param {number} [timeBetweenScansMillis=500] the time delay between subsequent decode tries
      */
     public constructor(timeBetweenScansMillis: number = 500) {
-        super(new SmartQRCodeReader(), timeBetweenScansMillis);
+        super(new QRCodeReader(), timeBetweenScansMillis);
     }
 }

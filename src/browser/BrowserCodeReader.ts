@@ -12,6 +12,9 @@ import { HTMLCanvasElementLuminanceSource } from './HTMLCanvasElementLuminanceSo
 import { HTMLVisualMediaElement } from './HTMLVisualMediaElement';
 import { VideoInputDevice } from './VideoInputDevice';
 import { findCandidatesL2, ROI, toGrayscale } from './SmartQRDetection';
+import { FrameAnalyzer } from '../core/qrcode/decoder/FrameAnalyzer';
+
+export type FrameHintCallback = (hint: string) => void;
 
 interface SmartOpts {
   useSmartDetect: boolean;
@@ -66,6 +69,11 @@ export class BrowserCodeReader {
    * Delay time between decode attempts made by the scanner.
    */
   protected _timeBetweenDecodingAttempts: number = 0;
+
+  private frameAnalyzer = new FrameAnalyzer();
+  private frameHintCallback: FrameHintCallback | null = null;
+  private lastFrameHint: string = 'Starting camera...';
+  private frameAnalysisCounter: number = 0;
 
   /** Time between two decoding tries in milli seconds. */
   get timeBetweenDecodingAttempts(): number {
@@ -904,6 +912,8 @@ export class BrowserCodeReader {
   ): void {
     this._stopContinuousDecode = false;
 
+    this.startContinuousFrameAnalysis(element);
+
     const loop = () => {
       if (this._stopContinuousDecode) {
         this._stopContinuousDecode = undefined;
@@ -949,6 +959,10 @@ export class BrowserCodeReader {
     };
 
     loop();
+  }
+
+  public setFrameHintCallback(callback: FrameHintCallback): void {
+    this.frameHintCallback = callback;
   }
 
   /**
@@ -1375,5 +1389,53 @@ export class BrowserCodeReader {
     }
 
     this.videoElement.removeAttribute('src');
+  }
+
+  /**
+   * Continuous frame analysis independent of QR code detection
+   */
+  private startContinuousFrameAnalysis(videoElement: HTMLVisualMediaElement): void {
+    const analyzeFrame = () => {
+      if (this._stopContinuousDecode) {
+        return;
+      }
+
+      try {
+        // Analyze frame every 15 frames for performance
+        this.frameAnalysisCounter++;
+        if (this.frameAnalysisCounter >= 15) {
+          this.analyzeCurrentFrame(videoElement);
+          this.frameAnalysisCounter = 0;
+        }
+      } catch (e) {
+        console.debug('Error in frame analysis:', e);
+      }
+
+      requestAnimationFrame(analyzeFrame);
+    };
+
+    analyzeFrame();
+  }
+
+  private analyzeCurrentFrame(videoElement: HTMLVisualMediaElement): void {
+    try {
+      const binaryMatrix = this.createBinaryBitmap(videoElement);
+      const hint = this.frameAnalyzer.analyzeFrame(binaryMatrix.getBlackMatrix());
+
+      this.updateFrameHint(hint);
+    } catch (e) {
+      console.debug('Error analyzing current frame:', e);
+      this.updateFrameHint('Analysis error - adjusting camera');
+    }
+  }
+
+  private updateFrameHint(hint: string): void {
+    if (this.lastFrameHint !== hint) {
+      this.lastFrameHint = hint;
+      // Notify callback if set
+      if (this.frameHintCallback) {
+        this.frameHintCallback(hint);
+      }
+    }
   }
 }
