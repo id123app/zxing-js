@@ -94,6 +94,8 @@ enum ResultMetadataType {
      */
     STRUCTURED_APPEND_PARITY,
 
+
+    POSITION_HINT = 11,
 }
 
 export default ResultMetadataType;

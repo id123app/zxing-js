@@ -29,6 +29,7 @@
         Chars count: <span id="charCount"></span><br>
         Last Error: <span id="lastError"></span><br>
         Decode time: <span id="decodeTime"></span>ms<br>
+        Hint: <span id="hint"></span><br>
       </div>
       <video id="video" width="100%" height="500" style="border: 1px solid gray"></video>
     </div>
@@ -62,6 +63,7 @@
         // properly decoded qr code
         document.getElementById('result').textContent = result.text
         document.getElementById('charCount').innerText = result.text.length.toString();
+        document.getElementById('hint').innerText = result.getResultMetadata().get(11) ?? '--';
       }
 
       if (err) {
