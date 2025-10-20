@@ -12,7 +12,6 @@ import { HTMLCanvasElementLuminanceSource } from './HTMLCanvasElementLuminanceSo
 import { HTMLVisualMediaElement } from './HTMLVisualMediaElement';
 import { VideoInputDevice } from './VideoInputDevice';
 import { findCandidatesL2, ROI, toGrayscale } from './SmartQRDetection';
-import { SharpnessAnalyzer } from './SharpnessAnalyzer';
 
 interface SmartOpts {
   useSmartDetect: boolean;
@@ -129,11 +128,6 @@ export class BrowserCodeReader {
    * used to unregister that listener when needed.
    */
   protected videoPlayingEventListener: EventListener;
-
-  private sharpnessAnalyzer: SharpnessAnalyzer = new SharpnessAnalyzer();
-  private lastSharpness: number = 0;
-  private lastDistanceHint: string = '';
-  private sharpnessUpdateCounter: number = 0;
 
   /**
    * Sets the hints.
@@ -910,9 +904,6 @@ export class BrowserCodeReader {
   ): void {
     this._stopContinuousDecode = false;
 
-    // Start continuous sharpness analysis
-    this.startContinuousSharpnessAnalysis(element);
-
     const loop = () => {
       if (this._stopContinuousDecode) {
         this._stopContinuousDecode = undefined;
@@ -1049,24 +1040,6 @@ export class BrowserCodeReader {
 
     // Fall back to full frame if ROI detection fails
     return new BinaryBitmap(new HybridBinarizer(src));
-  }
-
-  public getLastSharpness(): number {
-    return this.lastSharpness;
-  }
-
-  /**
-   * Get current distance hint
-   */
-  public getLastDistanceHint(): string {
-    return this.lastDistanceHint;
-  }
-
-  /**
-   * Get sharpness as percentage
-   */
-  public getSharpnessPercentage(): number {
-    return this.sharpnessAnalyzer.getSharpnessPercentage(this.lastSharpness);
   }
 
   /**
@@ -1402,64 +1375,5 @@ export class BrowserCodeReader {
     }
 
     this.videoElement.removeAttribute('src');
-  }
-
-  /**
-   * Start continuous sharpness analysis independent of QR code detection
-   */
-  private startContinuousSharpnessAnalysis(videoElement: HTMLVideoElement): void {
-    const analyzeFrame = () => {
-      if (this._stopContinuousDecode) {
-        return;
-      }
-
-      try {
-        this.analyzeImageSharpness(videoElement);
-      } catch (e) {
-        console.debug('Error in sharpness analysis:', e);
-      }
-
-      // Continue analysis regardless of QR code detection
-      requestAnimationFrame(analyzeFrame);
-    };
-
-    // Start the analysis loop
-    analyzeFrame();
-  }
-
-  private analyzeImageSharpness(videoElement: HTMLVideoElement): void {
-    try {
-      // Only analyze every 15 frames for performance (about 4 times per second at 60fps)
-      this.sharpnessUpdateCounter++;
-      if (this.sharpnessUpdateCounter < 15) {
-        return;
-      }
-      this.sharpnessUpdateCounter = 0;
-
-      const canvas = this.getCaptureCanvas(videoElement);
-      const ctx = this.getCaptureCanvasContext(videoElement);
-
-      // Check if video is ready and has valid dimensions
-      if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-        this.lastDistanceHint = 'Camera starting...';
-        return;
-      }
-
-      // Ensure canvas matches video dimensions
-      if (canvas.width !== videoElement.videoWidth || canvas.height !== videoElement.videoHeight) {
-        canvas.width = videoElement.videoWidth;
-        canvas.height = videoElement.videoHeight;
-      }
-
-      this.drawFrameOnCanvas(videoElement);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      this.lastSharpness = this.sharpnessAnalyzer.calculateSharpness(imageData.data, canvas.width, canvas.height);
-      this.lastDistanceHint = this.sharpnessAnalyzer.getDistanceHint(this.lastSharpness);
-
-    } catch (e) {
-      console.debug('Error analyzing image sharpness:', e);
-      this.lastDistanceHint = 'Analysis error';
-    }
   }
 }
