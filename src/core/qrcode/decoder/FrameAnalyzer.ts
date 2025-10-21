@@ -1,234 +1,159 @@
 import { BitMatrix } from '../../../index';
 
 /**
- * Analyzes frame quality and provides user hints for QR code scanning
+ * Advanced analyzer for QR scanning feedback.
+ * Detects framing, distance, and stability to guide user.
  */
 export class FrameAnalyzer {
+  private lastHint = '';
+  private hintStabilityCount = 0;
+  private lastDensity = 0;
+  private lastFinderCount = 0;
+
+  private readonly MIN_SIZE = 50;
+  private readonly SAMPLE_STEP = 4;
+  private readonly STABILITY_THRESHOLD = 2;
+
   /**
-   * Analyze frame and provide user hints
+   * Analyze a single frame and return a stable user hint.
    */
   public analyzeFrame(matrix: BitMatrix): string {
     const width = matrix.getWidth();
     const height = matrix.getHeight();
 
-    // Early return for invalid dimensions
-    if (width < 50 || height < 50) {
-      return 'Move closer - image resolution too low';
+    if (width < this.MIN_SIZE || height < this.MIN_SIZE) {
+      return this.getStableHint('Move closer');
     }
 
-    // Multi-dimensional analysis
     const densityInfo = this.analyzeDensity(matrix, width, height);
-    const sharpnessInfo = this.analyzeEdgeSharpness(matrix, width, height);
     const structureInfo = this.analyzeStructure(matrix, width, height);
-    const lightingInfo = this.analyzeLighting(matrix, width, height);
 
-    // Decision tree for hints
-    if (densityInfo.density < 0.02) {
-      return 'Move closer - QR code is too small or too far away';
-    } else if (densityInfo.density > 0.65) {
-      return 'Move away - image is too dark or QR code is too large';
-    } else if (lightingInfo.contrast < 0.3) {
-      return 'Improve lighting - low contrast detected';
-    } else if (lightingInfo.brightness < 0.2) {
-      return 'Increase brightness - image too dark';
-    } else if (lightingInfo.brightness > 0.8) {
-      return 'Reduce brightness - image too bright';
-    } else if (sharpnessInfo.edgeSharpness < 0.25) {
-      return 'Adjust focus - image is blurry';
-    } else if (structureInfo.finderPatterns === 0 && densityInfo.density > 0.1) {
-      return 'Center QR code - pattern not recognized';
-    } else if (densityInfo.distribution < 0.4) {
-      return 'Center QR code in frame';
-    } else if (sharpnessInfo.edgeSharpness > 0.6 && structureInfo.finderPatterns >= 1) {
-      return 'Good position - try scanning now';
-    } else if (structureInfo.finderPatterns >= 2) {
-      return 'Almost there - adjust focus slightly';
+    let hint: string;
+
+    // --- Detect unstable movement early ---
+    if (this.isUnstable(densityInfo.density, structureInfo.finderPatterns)) {
+      hint = 'Hold steady';
+    } else if (densityInfo.density < 0.02) {
+      hint = 'Too dark';
+    } else if (densityInfo.density < 0.05) {
+      hint = 'Move closer';
+    } else if (densityInfo.density > 0.45) {
+      hint = 'Move away';
+    } else if (structureInfo.finderPatterns < 1) {
+      hint = 'Center QR code';
+    } else if (densityInfo.distribution < 0.3) {
+      hint = 'Center QR code';
     } else {
-      return 'Adjust camera position and focus';
+      hint = 'Scanning...';
     }
+
+    this.lastDensity = densityInfo.density;
+    this.lastFinderCount = structureInfo.finderPatterns;
+
+    return this.getStableHint(hint);
   }
 
-  private analyzeDensity(matrix: BitMatrix, width: number, height: number): { density: number, distribution: number } {
+
+  // Smooths hint changes to avoid flickering between frames
+  private getStableHint(currentHint: string): string {
+    if (currentHint === this.lastHint) {
+      this.hintStabilityCount++;
+    } else {
+      this.hintStabilityCount = 1;
+      this.lastHint = currentHint;
+    }
+
+    return this.hintStabilityCount >= this.STABILITY_THRESHOLD
+      ? currentHint
+      : this.lastHint;
+  }
+
+  // Detect unstable camera movement based on density/finder variation
+  private isUnstable(density: number, finderCount: number): boolean {
+    const densityChange = Math.abs(density - this.lastDensity);
+    const finderChange = Math.abs(finderCount - this.lastFinderCount);
+
+    // More sensitive threshold
+    const unstable = densityChange > 0.02 || finderChange > 0;
+
+    // Optional: small random "stabilization" window
+    if (unstable) {
+      this.hintStabilityCount = 0; // reset stability to force feedback
+    }
+
+    return unstable;
+  }
+
+  // Estimate overall and central pixel density
+  private analyzeDensity(matrix: BitMatrix, width: number, height: number): {
+    density: number;
+    distribution: number;
+  } {
     let blackCount = 0;
     let centerBlackCount = 0;
 
-    const centerX1 = Math.floor(width * 0.3);
-    const centerX2 = Math.floor(width * 0.7);
-    const centerY1 = Math.floor(height * 0.3);
-    const centerY2 = Math.floor(height * 0.7);
+    const cx1 = Math.floor(width * 0.35);
+    const cx2 = Math.floor(width * 0.65);
+    const cy1 = Math.floor(height * 0.35);
+    const cy2 = Math.floor(height * 0.65);
 
-    for (let y = 0; y < height; y += 3) {
-      for (let x = 0; x < width; x += 3) {
+    for (let y = 0; y < height; y += this.SAMPLE_STEP) {
+      for (let x = 0; x < width; x += this.SAMPLE_STEP) {
         if (matrix.get(x, y)) {
           blackCount++;
-          if (x >= centerX1 && x <= centerX2 && y >= centerY1 && y <= centerY2) {
+          if (x >= cx1 && x <= cx2 && y >= cy1 && y <= cy2) {
             centerBlackCount++;
           }
         }
       }
     }
 
-    const totalSamples = Math.floor((width / 3) * (height / 3));
+    const totalSamples = Math.floor(
+      (width / this.SAMPLE_STEP) * (height / this.SAMPLE_STEP)
+    );
     const density = blackCount / Math.max(1, totalSamples);
     const distribution = centerBlackCount / Math.max(1, blackCount);
 
     return { density, distribution };
   }
 
-  private analyzeEdgeSharpness(matrix: BitMatrix, width: number, height: number): {
-    edgeSharpness: number,
-    transitions: number
-  } {
-    let sharpEdges = 0;
-    let totalPossibleEdges = 0;
-
-    // Horizontal edge detection
-    for (let y = 2; y < height - 2; y += 4) {
-      for (let x = 2; x < width - 4; x += 2) {
-        const current = matrix.get(x, y);
-        const right1 = matrix.get(x + 1, y);
-        const right2 = matrix.get(x + 2, y);
-
-        if (current !== right1 && right1 === right2) {
-          sharpEdges++;
-        }
-        totalPossibleEdges++;
-      }
-    }
-
-    // Vertical edge detection
-    for (let x = 2; x < width - 2; x += 4) {
-      for (let y = 2; y < height - 4; y += 2) {
-        const current = matrix.get(x, y);
-        const down1 = matrix.get(x, y + 1);
-        const down2 = matrix.get(x, y + 2);
-
-        if (current !== down1 && down1 === down2) {
-          sharpEdges++;
-        }
-        totalPossibleEdges++;
-      }
-    }
-
-    const edgeSharpness = totalPossibleEdges > 0 ? sharpEdges / totalPossibleEdges : 0;
-
-    return {
-      edgeSharpness,
-      transitions: sharpEdges
-    };
-  }
-
+  // Rough detection of finder-like patterns
   private analyzeStructure(matrix: BitMatrix, width: number, height: number): {
-    finderPatterns: number,
-    symmetry: number
+    finderPatterns: number;
   } {
     let finderPatterns = 0;
+    const step = Math.max(3, Math.floor(Math.min(width, height) / 40));
 
-    const step = Math.max(3, Math.floor(Math.min(width, height) / 50));
-
-    for (let y = step * 2; y < height - step * 7; y += step) {
-      for (let x = step * 2; x < width - step * 7; x += step) {
+    for (let y = step * 2; y < height - step * 8; y += step * 2) {
+      for (let x = step * 2; x < width - step * 8; x += step * 2) {
         if (this.detectFinderPattern(matrix, x, y, step)) {
           finderPatterns++;
-          x += step * 6;
+          if (finderPatterns >= 3) break;
         }
       }
+      if (finderPatterns >= 3) break;
     }
 
-    return {
-      finderPatterns: Math.min(3, finderPatterns),
-      symmetry: this.analyzeSymmetry(matrix, width, height)
-    };
+    return { finderPatterns };
   }
 
   private detectFinderPattern(matrix: BitMatrix, startX: number, startY: number, step: number): boolean {
-    const horizontalPattern = this.checkRatioPattern(matrix, startX, startY, step, 1, 0);
-    if (!horizontalPattern) return false;
+    // Basic 1:1:3:1:1 finder ratio check
+    const sample = (dx: number, dy: number) => {
+      const x = startX + dx * step;
+      const y = startY + dy * step;
+      return x < matrix.getWidth() && y < matrix.getHeight() && matrix.get(x, y);
+    };
 
-    return this.checkRatioPattern(matrix, startX, startY, step, 0, 1);
-  }
+    const pattern = [
+      sample(-2, 0),
+      sample(-1, 0),
+      sample(0, 0),
+      sample(1, 0),
+      sample(2, 0),
+    ];
 
-  private checkRatioPattern(matrix: BitMatrix, startX: number, startY: number, step: number, dx: number, dy: number): boolean {
-    const ratios = [1, 1, 3, 1, 1];
-    let position = 0;
-
-    for (let i = 0; i < ratios.length; i++) {
-      const segmentLength = ratios[i] * step;
-      const expectedColor = (i % 2) === 0;
-      let matchCount = 0;
-
-      for (let j = 0; j < segmentLength; j++) {
-        const x = startX + (position + j) * dx;
-        const y = startY + (position + j) * dy;
-
-        if (x >= matrix.getWidth() || y >= matrix.getHeight()) {
-          return false;
-        }
-
-        if (matrix.get(x, y) === expectedColor) {
-          matchCount++;
-        }
-      }
-
-      if (matchCount < segmentLength * 0.6) {
-        return false;
-      }
-
-      position += segmentLength;
-    }
-
-    return true;
-  }
-
-  private analyzeLighting(matrix: BitMatrix, width: number, height: number): { contrast: number, brightness: number } {
-    let blackCount = 0;
-    let whiteCount = 0;
-    let edgeTransitions = 0;
-
-    for (let y = 0; y < height; y += 5) {
-      for (let x = 0; x < width; x += 5) {
-        if (matrix.get(x, y)) {
-          blackCount++;
-        } else {
-          whiteCount++;
-        }
-
-        if (x > 0 && matrix.get(x, y) !== matrix.get(x - 1, y)) {
-          edgeTransitions++;
-        }
-        if (y > 0 && matrix.get(x, y) !== matrix.get(x, y - 1)) {
-          edgeTransitions++;
-        }
-      }
-    }
-
-    const totalSamples = blackCount + whiteCount;
-    const brightness = whiteCount / Math.max(1, totalSamples);
-    const maxPossibleEdges = (width * height) / 25 * 2;
-    const contrast = Math.min(1, edgeTransitions / (maxPossibleEdges * 0.1));
-
-    return { contrast, brightness };
-  }
-
-  private analyzeSymmetry(matrix: BitMatrix, width: number, height: number): number {
-    let matchingPixels = 0;
-    let totalCompared = 0;
-
-    for (let y = 0; y < Math.floor(height / 2); y += 4) {
-      for (let x = 0; x < Math.floor(width / 2); x += 4) {
-        const topLeft = matrix.get(x, y);
-        const topRight = matrix.get(width - 1 - x, y);
-        const bottomLeft = matrix.get(x, height - 1 - y);
-        const bottomRight = matrix.get(width - 1 - x, height - 1 - y);
-
-        if (topLeft === topRight) matchingPixels++;
-        if (topLeft === bottomLeft) matchingPixels++;
-        if (topLeft === bottomRight) matchingPixels++;
-
-        totalCompared += 3;
-      }
-    }
-
-    return totalCompared > 0 ? matchingPixels / totalCompared : 0;
+    const blackRatio = pattern.filter(Boolean).length / pattern.length;
+    return blackRatio >= 0.6;
   }
 }
