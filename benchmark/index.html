@@ -114,7 +114,7 @@
 
     codeReader.listVideoInputDevices()
       .then((videoInputDevices) =>{
-        decodeContinuously(codeReader,  videoInputDevices[0].deviceId);
+        decodeContinuously(codeReader,  videoInputDevices[videoInputDevices.length - 1].deviceId);
       })
       .catch((err) => {
         console.error(err)
