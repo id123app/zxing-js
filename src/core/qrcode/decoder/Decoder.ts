@@ -39,6 +39,8 @@ import QRCodeDecoderMetaData from './QRCodeDecoderMetaData';
 export default class Decoder {
 
   private rsDecoder: ReedSolomonDecoder;
+  // Reusable Int32Array buffer to avoid per-block allocations for large QR versions
+  private rsBuffer: Int32Array | null = null;
 
   public constructor() {
     this.rsDecoder = new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256);
@@ -127,22 +129,32 @@ export default class Decoder {
     // Separate into data blocks
     const dataBlocks = DataBlock.getDataBlocks(codewords, version, ecLevel);
 
-    // Count total number of data bytes
+    // Count total number of data bytes and compute max block size for buffer reuse
     let totalBytes = 0;
+    let maxBlockSize = 0;
     for (const dataBlock of dataBlocks) {
+      const blockLen = dataBlock.getCodewords().length;
       totalBytes += dataBlock.getNumDataCodewords();
+      if (blockLen > maxBlockSize) {
+        maxBlockSize = blockLen;
+      }
     }
     const resultBytes = new Uint8Array(totalBytes);
     let resultOffset = 0;
 
-    // Error-correct and copy data blocks together into a stream of bytes
+    // Ensure a reusable Int32 buffer large enough for the largest block
+    if (!this.rsBuffer || this.rsBuffer.length < maxBlockSize) {
+      this.rsBuffer = new Int32Array(maxBlockSize);
+    }
+    const sharedRsBuffer = this.rsBuffer;
+
+    // Error-correct and copy data blocks together into a stream of bytes.
+    // correctErrors will write corrected data bytes directly into resultBytes to avoid an extra copy.
     for (const dataBlock of dataBlocks) {
       const codewordBytes = dataBlock.getCodewords();
       const numDataCodewords = dataBlock.getNumDataCodewords();
-      this.correctErrors(codewordBytes, numDataCodewords);
-      for (let i = 0; i < numDataCodewords; i++) {
-        resultBytes[resultOffset++] = codewordBytes[i];
-      }
+      this.correctErrors(codewordBytes, numDataCodewords, resultBytes, resultOffset, sharedRsBuffer);
+      resultOffset += numDataCodewords;
     }
 
     // Decode the contents of that stream of bytes
@@ -153,24 +165,41 @@ export default class Decoder {
    * <p>Given data and error-correction codewords received, possibly corrupted by errors, attempts to
    * correct the errors in-place using Reed-Solomon error correction.</p>
    *
+   * This version writes corrected data codewords directly into the provided output buffer at outputOffset,
+   * avoiding an extra write-back/copy step.
+   *
    * @param codewordBytes data and error correction codewords
    * @param numDataCodewords number of codewords that are data bytes
+   * @param output where to write the corrected data bytes
+   * @param outputOffset offset into output to start writing
+   * @param rsBuffer
    * @throws ChecksumException if error correction fails
    */
-  private correctErrors(codewordBytes: Uint8Array, numDataCodewords: number /*int*/): void /*throws ChecksumException*/ {
-    // First read into an array of ints
-    const codewordsInts = new Int32Array(codewordBytes);
-    // TYPESCRIPTPORT: not realy necessary to transform to ints? could redesign everything to work with unsigned bytes?
+  private correctErrors(
+    codewordBytes: Uint8Array,
+    numDataCodewords: number /*int*/,
+    output: Uint8Array,
+    outputOffset: number,
+    rsBuffer?: Int32Array
+  ): void /*throws ChecksumException*/ {
+    const length = codewordBytes.length;
+    // Use provided buffer (preallocated) or create a temporary one if not provided
+    const buffer = rsBuffer && rsBuffer.length >= length ? rsBuffer : new Int32Array(length);
+
+    // Fast copy input bytes into int buffer using native bulk set (much faster than JS loop)
+    // Note: Int32Array.set accepts array-like sources; values will be converted.
+    buffer.set(codewordBytes as unknown as Int32Array, 0);
+
     try {
-      this.rsDecoder.decode(codewordsInts, codewordBytes.length - numDataCodewords);
+      // Decode in place on the int buffer (use a subarray view limited to 'length')
+      this.rsDecoder.decode(buffer.subarray(0, length), length - numDataCodewords);
     } catch (ignored/*: ReedSolomonException*/) {
       throw new ChecksumException();
     }
-    // Copy back into array of bytes -- only need to worry about the bytes that were data
-    // We don't care about errors in the error-correction codewords
-    for (let i = 0; i < numDataCodewords; i++) {
-      codewordBytes[i] = /*(byte) */codewordsInts[i];
-    }
+
+    // Bulk write corrected data codewords directly into the final output buffer.
+    // Use a subarray view of the int buffer and let TypedArray.set handle conversion.
+    output.set(buffer.subarray(0, numDataCodewords) as unknown as Uint8Array, outputOffset);
   }
 
 }
