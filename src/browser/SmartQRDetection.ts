@@ -97,3 +97,36 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
     h: ((maxy - miny) * sy) | 0
   };
 }
+
+/** Fast sampled Laplacian variance blur detector. */
+export function isLikelyBlurred(gray: Uint8Array, W: number, H: number): boolean {
+  if (!gray || W < 8 || H < 8) return false;
+  const step = Math.max(1, Math.floor(Math.min(W, H) / 60)); // coarse sampling
+  let acc = 0;
+  let cnt = 0;
+  for (let y = 1; y < H - 1; y += step) {
+    const row = y * W;
+    for (let x = 1; x < W - 1; x += step) {
+      const i = row + x;
+      const lap = (4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - W] - gray[i + W]);
+      acc += lap * lap;
+      cnt++;
+    }
+  }
+  if (cnt === 0) return false;
+  const meanSq = acc / cnt;
+  // conservative threshold: lower => blurrier
+  return meanSq < 350;
+}
+
+/** Very small/performance-friendly contrast stretch applied in-place to imageData. */
+export function simpleContrastStretch(imageData: ImageData, factor = 1.3): void {
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    // stretch each RGB channel around mid (128)
+    d[i] = Math.max(0, Math.min(255, Math.round(128 + (d[i] - 128) * factor)));
+    d[i + 1] = Math.max(0, Math.min(255, Math.round(128 + (d[i + 1] - 128) * factor)));
+    d[i + 2] = Math.max(0, Math.min(255, Math.round(128 + (d[i + 2] - 128) * factor)));
+    // keep alpha as-is
+  }
+}

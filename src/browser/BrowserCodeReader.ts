@@ -11,7 +11,7 @@ import { DecodeContinuouslyCallback } from './DecodeContinuouslyCallback';
 import { HTMLCanvasElementLuminanceSource } from './HTMLCanvasElementLuminanceSource';
 import { HTMLVisualMediaElement } from './HTMLVisualMediaElement';
 import { VideoInputDevice } from './VideoInputDevice';
-import { findCandidatesL2, ROI, toGrayscale } from './SmartQRDetection';
+import { findCandidatesL2, isLikelyBlurred, ROI, simpleContrastStretch, toGrayscale } from './SmartQRDetection';
 import { FrameAnalyzer } from '../core/qrcode/decoder/FrameAnalyzer';
 
 export type FrameHintCallback = (hint: string) => void;
@@ -1011,7 +1011,19 @@ export class BrowserCodeReader {
     }
 
     const imageData = ctx.getImageData(0, 0, W, H);
-    const gray = toGrayscale(imageData.data, W, H);
+    // compute grayscale and apply a tiny, cheap enhancement only when frame looks blurry
+    let gray = toGrayscale(imageData.data, W, H);
+    try {
+      if (isLikelyBlurred(gray, W, H)) {
+        // small contrast boost around midtones — cheap and often helpful for blurry/low-contrast frames
+        simpleContrastStretch(imageData, 1.4);
+        ctx.putImageData(imageData, 0, 0);
+        // recompute grayscale from enhanced pixels
+        gray = toGrayscale(imageData.data, W, H);
+      }
+    } catch {
+      // silent fallback to original gray on any error
+    }
 
     let src = new HTMLCanvasElementLuminanceSource(canvas, mediaElement instanceof HTMLVideoElement);
 
