@@ -20,6 +20,11 @@
       <a class="button-small button-outline" href="/new">NEW VERSION</a>
     </p>
 
+    <div>
+      <label for="camera-select">Select Camera:</label>
+      <select id="camera-select"></select>
+    </div>
+
     <div style="width: 100%; position: relative">
 
       <div style="position: absolute; top :5px; left:5px; background: rgba(256,256,256,0.8); padding: 5px; border-radius: 5px; font-size: .8em">
@@ -53,8 +58,14 @@
   let decodesPerSecond = 0;
   let successDecodesPerSecond = 0;
   let errorsPerSecond = 0;
+  let currentCodeReader = null;
 
   function decodeContinuously(codeReader, selectedDeviceId) {
+    if (currentCodeReader) {
+      currentCodeReader.reset();
+    }
+    currentCodeReader = codeReader;
+
     codeReader.decodeFromInputVideoDeviceContinuously(selectedDeviceId, 'video', (result, err) => {
       decodesPerSecond++;
       if (result) {
@@ -95,7 +106,7 @@
     })
   }
 
-  window.addEventListener('load', function () {
+  window.addEventListener('load', async function () {
     let selectedDeviceId;
     setInterval(() => {
       document.getElementById('decodesPerSecond').innerText=decodesPerSecond;
@@ -112,9 +123,26 @@
     const codeReader = new ZXing.BrowserQRCodeReader()
     console.log('ZXing code reader initialized')
 
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
     codeReader.listVideoInputDevices()
       .then((videoInputDevices) =>{
-        decodeContinuously(codeReader,  videoInputDevices[videoInputDevices.length - 1].deviceId);
+        const cameraSelect = document.getElementById('camera-select');
+
+        videoInputDevices.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        selectedDeviceId = videoInputDevices[0].deviceId;
+        decodeContinuously(codeReader, selectedDeviceId);
+
+        cameraSelect.addEventListener('change', () => {
+          selectedDeviceId = cameraSelect.value;
+          decodeContinuously(codeReader, selectedDeviceId);
+        });
       })
       .catch((err) => {
         console.error(err)
