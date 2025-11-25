@@ -188,7 +188,7 @@ export default class Decoder {
 
     // Fast copy input bytes into int buffer using native bulk set (much faster than JS loop)
     // Note: Int32Array.set accepts array-like sources; values will be converted.
-    buffer.set(codewordBytes as unknown as Int32Array, 0);
+    buffer.set(codewordBytes, 0);
 
     try {
       // Decode in place on the int buffer (use a subarray view limited to 'length')
@@ -199,7 +199,7 @@ export default class Decoder {
 
     // Bulk write corrected data codewords directly into the final output buffer.
     // Use a subarray view of the int buffer and let TypedArray.set handle conversion.
-    output.set(buffer.subarray(0, numDataCodewords) as unknown as Uint8Array, outputOffset);
+    output.set(buffer.subarray(0, numDataCodewords), outputOffset);
   }
 
 }
