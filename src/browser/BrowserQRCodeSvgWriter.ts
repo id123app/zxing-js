@@ -136,11 +136,11 @@ class BrowserQRCodeSvgWriter {
    */
   private createSVGElement(w: number, h: number): SVGSVGElement {
 
-    let svgElement: SVGSVGElement = document.getElementById('ZXingDebug') as SVGSVGElement;
-    if (!svgElement) {
-      svgElement = document.createElementNS(BrowserQRCodeSvgWriter.SVG_NS, 'svg');
-    }
+    const element = document.getElementById('ZXingDebug');
 
+    const svgElement = element instanceof SVGSVGElement
+      ? element
+      : document.createElementNS(BrowserQRCodeSvgWriter.SVG_NS, 'svg');
 
     // corrected: width -> w, height -> h
     svgElement.setAttributeNS(null, 'width', w.toString());
