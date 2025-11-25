@@ -1056,7 +1056,6 @@ export class BrowserCodeReader {
         const roi = findCandidatesL2(gray, W, H);
         if (roi) {
           // Validate ROI size (allow very small, but require minimal area)
-          const minSize = Math.min(W, H) * 0.05; // 5% of min dimension
           if (roi.w >= 2 && roi.h >= 2) {
             const r = inflate(roi);
             this.lastROI = roi;
