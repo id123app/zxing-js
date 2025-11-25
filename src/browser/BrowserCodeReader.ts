@@ -15,6 +15,7 @@ import { findCandidatesL2, isLikelyBlurred, ROI, simpleContrastStretch, toGraysc
 import { FrameAnalyzer } from '../core/qrcode/decoder/FrameAnalyzer';
 
 export type FrameHintCallback = (hint: string) => void;
+export type DecodeTimeCallback = (time: number) => void;
 
 interface SmartOpts {
   useSmartDetect: boolean;
@@ -74,6 +75,7 @@ export class BrowserCodeReader {
   private frameHintCallback: FrameHintCallback | null = null;
   private lastFrameHint: string = 'Starting camera...';
   private frameAnalysisCounter: number = 0;
+  private decodeTimeCallback: DecodeTimeCallback | null = null;
 
   /** Time between two decoding tries in milli seconds. */
   get timeBetweenDecodingAttempts(): number {
@@ -925,10 +927,10 @@ export class BrowserCodeReader {
         const result = this.decode(element);
         const decodeTime = Date.now() - delayTime;
 
-        if (document) {
-          // @ts-ignore
-          document.decodeTime = decodeTime;
+        if (this.decodeTimeCallback) {
+          this.decodeTimeCallback(decodeTime);
         }
+
         // success: report result
         callbackFn(result, null);
 
@@ -963,6 +965,10 @@ export class BrowserCodeReader {
 
   public setFrameHintCallback(callback: FrameHintCallback): void {
     this.frameHintCallback = callback;
+  }
+
+  public setDecodeTimeCallback(callback: DecodeTimeCallback): void {
+    this.decodeTimeCallback = callback;
   }
 
   /**

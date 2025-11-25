@@ -60,6 +60,7 @@
   let successDecodesPerSecond = 0;
   let errorsPerSecond = 0;
   let currentCodeReader = null;
+  let decodeTime = null;
 
   function decodeContinuously(codeReader, selectedDeviceId) {
     if (currentCodeReader) {
@@ -69,6 +70,10 @@
 
     codeReader.setFrameHintCallback(function(hint) {
       document.getElementById('hint').innerText = hint;
+    });
+
+    codeReader.setDecodeTimeCallback(function(time) {
+      decodeTime = time;
     });
 
     codeReader.decodeFromInputVideoDeviceContinuously(selectedDeviceId, 'video', (result, err) => {
@@ -118,9 +123,10 @@
       document.getElementById('successDecodesPerSecond').innerText=successDecodesPerSecond;
       document.getElementById('errorsPerSecond').innerText=errorsPerSecond;
 
-      if(document.decodeTime){
-        document.getElementById('decodeTime').innerText = document.decodeTime;
+      if (decodeTime) {
+        document.getElementById('decodeTime').innerText = decodeTime;
       }
+
       decodesPerSecond = 0;
       successDecodesPerSecond = 0;
       errorsPerSecond = 0;
