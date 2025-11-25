@@ -38,7 +38,7 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
   const xs: number[] = [], ys: number[] = [];
 
   // Scan more lines for better detection
-  for (let y = 2; y < dh - 2; y += 1) { // Changed from y += 2 to y += 1
+  for (let y = 2; y < dh - 2; y += 1) { // Changed from y += 2 to y += 1 to scan every row for better detection accuracy
     let last = -1, k = 0;
     const run = [0, 0, 0, 0, 0];
     const row = y * dw;
