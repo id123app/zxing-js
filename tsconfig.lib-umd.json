@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2015",
+    "module": "es2015",
+    "moduleResolution": "node",
+    "lib": ["dom", "es2015", "es2015.iterable"],
+    "downlevelIteration": true,
+    "importHelpers": false,
+    "declaration": false,
+    "sourceMap": false,
+    "strict": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/test/**", "**/*.spec.ts", "tests/**"]
+}
