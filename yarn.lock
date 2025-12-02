@@ -5042,12 +5042,13 @@ setprototypeof@1.2.0:
   integrity sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==
 
 sha.js@^2.4.0, sha.js@^2.4.8:
-  version "2.4.11"
-  resolved "https://registry.npmjs.org/sha.js/-/sha.js-2.4.11.tgz"
-  integrity sha512-QMEp5B7cftE7APOjk5Y6xgrbWu+WkLVQwk8JNjZ8nKRciZaByEW6MubieAiToS7+dwvrjGhH8jRXz3MVd0AYqQ==
+  version "2.4.12"
+  resolved "https://registry.yarnpkg.com/sha.js/-/sha.js-2.4.12.tgz#eb8b568bf383dfd1867a32c3f2b74eb52bdbf23f"
+  integrity sha512-8LzC5+bvI45BjpfXU8V5fdU2mfeKiQe1D1gIMn7XUlF3OTUrpdJpPPH4EMAnF0DsHHdSZqCdSss5qCmJKuiO3w==
   dependencies:
-    inherits "^2.0.1"
-    safe-buffer "^5.0.1"
+    inherits "^2.0.4"
+    safe-buffer "^5.2.1"
+    to-buffer "^1.2.0"
 
 sharp@^0.32.6:
   version "0.32.6"
@@ -6021,17 +6022,19 @@ which-module@^2.0.0:
   version "2.0.1"
   resolved "https://registry.npmjs.org/which-module/-/which-module-2.0.1.tgz"
   integrity sha512-iBdZ57RDvnOR9AGBhML2vFZf7h8vmBjhoaZqODJBFWHVtKkDmKuHai3cx5PgVMrX5YDNp27AofYbAwctSS+vhQ==
-
-which-typed-array@^1.1.14, which-typed-array@^1.1.15:
-  version "1.1.15"
-  resolved "https://registry.npmjs.org/which-typed-array/-/which-typed-array-1.1.15.tgz"
-  integrity sha512-oV0jmFtUky6CXfkqehVvBP/LSWJ2sy4vWMioiENyJLePrBO/yKyV9OyJySfAKosh+RYkIl5zJCNZ8/4JncrpdA==
+   
+which-typed-array@^1.1.14, which-typed-array@^1.1.15, which-typed-array@^1.1.16:
+  version "1.1.19"
+  resolved "https://registry.yarnpkg.com/which-typed-array/-/which-typed-array-1.1.19.tgz#df03842e870b6b88e117524a4b364b6fc689f956"
+  integrity sha512-rEvr90Bck4WZt9HHFC4DJMsjvu7x+r6bImz0/BrbWb7A2djJ8hnZMrWnHo9F8ssv0OMErasDhftrfROTyqSDrw==
   dependencies:
     available-typed-arrays "^1.0.7"
-    call-bind "^1.0.7"
-    for-each "^0.3.3"
-    gopd "^1.0.1"
-    has-tostringtag "^1.0.2"
+    call-bind "^1.0.8"
+    call-bound "^1.0.4"
+    for-each "^0.3.5"
+    get-proto "^1.0.1"
+    gopd "^1.2.0"
+    has-tostringtag "^1.0.2"    
 
 which-typed-array@^1.1.16:
   version "1.1.19"
