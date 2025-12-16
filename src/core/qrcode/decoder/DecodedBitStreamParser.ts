@@ -268,44 +268,67 @@ export default class DecodedBitStreamParser {
     result: StringBuilder,
     count: number /*int*/,
     fc1InEffect: boolean): void /*throws FormatException*/ {
+    // Preserve original count for array allocation
+    // count represents number of characters to decode (ZXing spec)
+    const totalChars = count;
+    let remaining = count;
+
+    // Pre-allocate array for O(1) append operations
+    const chars: string[] = new Array(totalChars);
+    let charIndex = 0;
+
     // Read two characters at a time
-    const start = result.length();
-    while (count > 1) {
+    while (remaining > 1) {
       if (bits.available() < 11) {
         throw new FormatException();
       }
       const nextTwoCharsBits = bits.readBits(11);
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(nextTwoCharsBits / 45)));
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(nextTwoCharsBits % 45));
-      count -= 2;
+      const first = Math.floor(nextTwoCharsBits / 45);
+      const second = nextTwoCharsBits % 45;
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(first);
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(second);
+      remaining -= 2;
     }
-    if (count === 1) {
+
+    if (remaining === 1) {
       // special case: one character left
       if (bits.available() < 6) {
         throw new FormatException();
       }
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(bits.readBits(6)));
+      const singleCharBits = bits.readBits(6);
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(singleCharBits);
     }
+
     // See section 6.4.8.1, 6.4.8.2
     if (fc1InEffect) {
       // We need to massage the result a bit if in an FNC1 mode:
-      for (let i = start; i < result.length(); i++) {
-        if (result.charAt(i) === '%') {
-          if (i < result.length() - 1 && result.charAt(i + 1) === '%') {
-            // %% is rendered as %
-            result.deleteCharAt(i + 1);
-          } else {
-            // In alpha mode, % should be converted to FNC1 separator 0x1D
-            result.setCharAt(i, String.fromCharCode(0x1D));
-          }
+      let write = 0;
+      for (let read = 0; read < charIndex; read++) {
+        const c = chars[read];
+        if (c === '%' && read < charIndex - 1 && chars[read + 1] === '%') {
+          // %% is rendered as %
+          chars[write++] = '%';
+          read++; // Skip second %
+        } else if (c === '%') {
+          // In alpha mode, % should be converted to FNC1 separator 0x1D
+          chars[write++] = String.fromCharCode(0x1D);
+        } else {
+          chars[write++] = c;
         }
       }
+      result.append(chars.slice(0, write).join(''));
+    } else {
+      // Single join operation: O(n) instead of O(n²)
+      result.append(chars.slice(0, charIndex).join(''));
     }
   }
 
   private static decodeNumericSegment(bits: BitSource,
     result: StringBuilder,
     count: number /*int*/): void /*throws FormatException*/ {
+    // Collect decoded digits into an array to avoid repeated string concatenation
+    const digits: string[] = [];
+
     // Read three digits at a time
     while (count >= 3) {
       // Each 10 bits encodes three digits
@@ -316,9 +339,9 @@ export default class DecodedBitStreamParser {
       if (threeDigitsBits >= 1000) {
         throw new FormatException();
       }
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(threeDigitsBits / 100)));
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(threeDigitsBits / 10) % 10));
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(threeDigitsBits % 10));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(threeDigitsBits / 100)));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(threeDigitsBits / 10) % 10));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(threeDigitsBits % 10));
       count -= 3;
     }
     if (count === 2) {
@@ -330,8 +353,8 @@ export default class DecodedBitStreamParser {
       if (twoDigitsBits >= 100) {
         throw new FormatException();
       }
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(twoDigitsBits / 10)));
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(twoDigitsBits % 10));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(twoDigitsBits / 10)));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(twoDigitsBits % 10));
     } else if (count === 1) {
       // One digit left over to read
       if (bits.available() < 4) {
@@ -341,7 +364,11 @@ export default class DecodedBitStreamParser {
       if (digitBits >= 10) {
         throw new FormatException();
       }
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(digitBits));
+      digits.push(DecodedBitStreamParser.toAlphaNumericChar(digitBits));
+    }
+
+    if (digits.length > 0) {
+      result.append(digits.join(''));
     }
   }
 
