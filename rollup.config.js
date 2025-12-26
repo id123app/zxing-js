@@ -4,6 +4,7 @@ export default {
   input: 'dist/es2015/index.js',
   external: [
     '@zxing/text-encoding',
+    'zxing-wasm/reader', // External: users must load zxing-wasm separately in browser
   ],
   plugins: [
     resolve(),

@@ -52,6 +52,16 @@ export class BrowserCodeReader {
   private _stopAsyncDecode = false;
 
   /**
+   * Async decode hook.
+   *
+   * Default implementation wraps the synchronous `decode()` call.
+   * Subclasses (e.g. WASM-backed readers) can override this to perform an async decode.
+   */
+  public async decodeAsync(element: HTMLVisualMediaElement): Promise<Result> {
+    return this.decode(element);
+  }
+
+  /**
    * Delay time between decode attempts made by the scanner.
    */
   protected _timeBetweenDecodingAttempts: number = 0;
@@ -838,7 +848,7 @@ export class BrowserCodeReader {
   ): Promise<Result> {
     this._stopAsyncDecode = false;
 
-    const loop = (
+    const loop = async (
       resolve: (value?: Result | PromiseLike<Result>) => void,
       reject: (reason?: any) => void
     ) => {
@@ -853,7 +863,7 @@ export class BrowserCodeReader {
       }
 
       try {
-        const result = this.decode(element);
+        const result = await this.decodeAsync(element);
         resolve(result);
       } catch (e) {
         const ifNotFound = retryIfNotFound && e instanceof NotFoundException;
@@ -865,10 +875,8 @@ export class BrowserCodeReader {
         if (ifNotFound || ifChecksumOrFormat) {
           // trying again
           return setTimeout(
-            loop,
+            () => void loop(resolve, reject),
             this._timeBetweenDecodingAttempts,
-            resolve,
-            reject
           );
         }
 
@@ -876,7 +884,9 @@ export class BrowserCodeReader {
       }
     };
 
-    return new Promise((resolve, reject) => loop(resolve, reject));
+    return new Promise((resolve, reject) => {
+      void loop(resolve, reject);
+    });
   }
 
   /**
@@ -888,14 +898,14 @@ export class BrowserCodeReader {
   ): void {
     this._stopContinuousDecode = false;
 
-    const loop = () => {
+    const loop = async () => {
       if (this._stopContinuousDecode) {
         this._stopContinuousDecode = undefined;
         return;
       }
 
       try {
-        const result = this.decode(element);
+        const result = await this.decodeAsync(element);
         callbackFn(result, null);
         setTimeout(loop, this.timeBetweenScansMillis);
       } catch (e) {
@@ -912,7 +922,7 @@ export class BrowserCodeReader {
       }
     };
 
-    loop();
+    void loop();
   }
 
   /**
