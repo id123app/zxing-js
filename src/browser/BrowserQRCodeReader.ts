@@ -33,8 +33,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     
     /**
      * Auto-detect and inject WASM if available (ZXingWASM global from IIFE build)
+     * If not available, automatically load it from CDN
      */
-    private static autoDetectWasm(): void {
+    private static async autoDetectWasm(): Promise<void> {
         if (BrowserQRCodeReader.wasmAutoDetected) {
             return; // Already tried
         }
@@ -43,14 +44,70 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         // Check for ZXingWASM global (from IIFE build)
         if (typeof window !== 'undefined' && (window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
             BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
+            return;
         }
+        
+        // If not available, try to load from CDN
+        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+            try {
+                await BrowserQRCodeReader.loadWasmFromCDN();
+            } catch (e) {
+                // Silently fail - WASM will just be unavailable
+                console.debug('[BrowserQRCodeReader] Failed to auto-load zxing-wasm from CDN:', e);
+            }
+        }
+    }
+    
+    /**
+     * Dynamically load zxing-wasm from CDN
+     */
+    private static async loadWasmFromCDN(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            // Check if already loaded
+            if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
+                BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
+                resolve();
+                return;
+            }
+            
+            // Check if script is already being loaded
+            const existingScript = document.querySelector('script[src*="zxing-wasm"]');
+            if (existingScript) {
+                // Wait for it to load
+                existingScript.addEventListener('load', () => {
+                    if ((window as any).ZXingWASM) {
+                        BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
+                        resolve();
+                    } else {
+                        reject(new Error('zxing-wasm script loaded but ZXingWASM global not found'));
+                    }
+                });
+                existingScript.addEventListener('error', reject);
+                return;
+            }
+            
+            // Create and load script
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js';
+            script.async = true;
+            script.onload = () => {
+                if ((window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
+                    BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
+                    resolve();
+                } else {
+                    reject(new Error('zxing-wasm script loaded but ZXingWASM.readBarcodes not found'));
+                }
+            };
+            script.onerror = () => reject(new Error('Failed to load zxing-wasm from CDN'));
+            document.head.appendChild(script);
+        });
     }
     
     /**
      * Check if WASM is available (without throwing)
      */
     private static async isWasmAvailable(): Promise<boolean> {
-        BrowserQRCodeReader.autoDetectWasm();
+        await BrowserQRCodeReader.autoDetectWasm();
         
         if (BrowserQRCodeReader.wasmReaderModule) {
             return true;
@@ -156,8 +213,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
 
         super(new QRCodeReader(), timeBetweenScansMillis);
 
-        // Auto-detect WASM on construction
-        BrowserQRCodeReader.autoDetectWasm();
+        // Auto-detect and load WASM on construction (async, won't block)
+        void BrowserQRCodeReader.autoDetectWasm();
         
         // If useWasm is explicitly set, use it. Otherwise, default to true (will try WASM first)
         this.useWasm =
@@ -197,24 +254,51 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             const isLikelyLargeCode = canvas.width > 400 || canvas.height > 400;
 
             const { readBarcodes } = await BrowserQRCodeReader.getWasmReader();
-            const results = await readBarcodes(imageData, {
+            
+            // Build options - only include downscale options if we want to downscale
+            const options: any = {
                 formats: ['QRCode'],
                 tryHarder: true,
                 tryRotate: true,
                 tryInvert: true,
-                // CRITICAL: Don't downscale large QR codes - they need full resolution
-                // Downscaling helps with speed for small codes, but destroys large code detection
-                tryDownscale: !isLikelyLargeCode,
-                downscaleFactor: isLikelyLargeCode ? 1 : 3,
-                downscaleThreshold: isLikelyLargeCode ? Infinity : 500,
                 maxNumberOfSymbols: 1,
-            });
+            };
+            
+            // CRITICAL: Don't downscale large QR codes - they need full resolution
+            // Only add downscale options if we want to downscale (for small codes)
+            if (!isLikelyLargeCode) {
+                options.tryDownscale = true;
+                options.downscaleFactor = 3;
+                options.downscaleThreshold = 500;
+            }
+            // For large codes, don't set downscale options at all (use full resolution)
+            
+            console.log('[BrowserQRCodeReader] Calling readBarcodes with options:', JSON.stringify(options, null, 2));
+            const results = await readBarcodes(imageData, options);
+            
+            console.log('[BrowserQRCodeReader] readBarcodes returned', results?.length, 'results');
 
             if (!results || results.length === 0) {
                 throw new NotFoundException();
             }
 
             const first = results[0];
+            
+            // Check if result is valid
+            if (!first.isValid) {
+                // If result has an error, log it and throw
+                const errorMsg = first.error || 'Unknown WASM decode error';
+                console.error('[BrowserQRCodeReader] WASM decode failed:', errorMsg, first);
+                throw new Error(`WASM decode failed: ${errorMsg}`);
+            }
+            
+            if (!first.text) {
+                console.warn('[BrowserQRCodeReader] WASM detected QR code but text is empty');
+                throw new NotFoundException();
+            }
+            
+            const decodedText = first.text;
+            
             const points: ResultPoint[] = (first.position?.topLeft && first.position?.topRight && first.position?.bottomRight && first.position?.bottomLeft)
                 ? [
                     new ResultPoint(first.position.topLeft.x, first.position.topLeft.y),
@@ -224,7 +308,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 ]
                 : null;
 
-            return new Result(first.text, null, 0, points, BarcodeFormat.QR_CODE);
+            return new Result(decodedText, null, 0, points, BarcodeFormat.QR_CODE);
         } catch (e) {
             // If WASM fails (module not loaded, API error, etc.), fall back to regular decode
             // This ensures backward compatibility even if zxing-wasm isn't available
