@@ -70,8 +70,11 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     }
     
     /**
-     * Auto-detect and inject WASM if available (ZXingWASM global from IIFE build)
-     * If not available, automatically load it from CDN
+     * Auto-detect and inject WASM if available.
+     * Priority: 1) npm dependency (via dynamic import/require), 2) Global variable, 3) CDN (last resort)
+     * 
+     * Note: npm dependency is preferred for stability, version control, and offline builds.
+     * CDN loading is only used as a fallback when npm dependency is not available.
      */
     private static async autoDetectWasm(): Promise<void> {
         if (BrowserQRCodeReader.wasmAutoDetected) {
@@ -79,13 +82,17 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         }
         BrowserQRCodeReader.wasmAutoDetected = true;
         
-        // Check for ZXingWASM global (from IIFE build)
+        // First, try to detect npm dependency (preferred method)
+        // This happens automatically in getWasmReader() via dynamic import/require
+        
+        // Then check for ZXingWASM global (from script tag or CDN)
         if (typeof window !== 'undefined' && (window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
             BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
             return;
         }
         
-        // If not available, try to load from CDN
+        // Last resort: try to load from CDN (only if npm dependency and global are not available)
+        // This requires internet connection and is less stable than npm dependency
         if (typeof window !== 'undefined' && typeof document !== 'undefined') {
             try {
                 await BrowserQRCodeReader.loadWasmFromCDN();
@@ -97,7 +104,13 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     }
     
     /**
-     * Dynamically load zxing-wasm from CDN
+     * Dynamically load zxing-wasm from CDN (last resort fallback).
+     * 
+     * Note: This is only used when npm dependency is not available.
+     * For production use, prefer installing zxing-wasm via npm for:
+     * - Version stability (pinned versions)
+     - Offline builds
+     * - Better security (no external CDN dependency)
      */
     private static async loadWasmFromCDN(): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -171,27 +184,21 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             throw BrowserQRCodeReader.wasmLoadError;
         }
         if (!BrowserQRCodeReader.wasmReaderPromise) {
-            // Lazy-load WASM module. Try multiple strategies for browser compatibility:
-            // Strategy order: 1. Manual injection, 2. Global variable, 3. Dynamic import (ES modules), 4. require (Node.js/CommonJS)
+            // Lazy-load WASM module. Try multiple strategies in priority order:
+            // 1. Manual injection (highest priority - user explicitly provided)
+            // 2. npm dependency via dynamic import/require (preferred for stability/offline builds)
+            // 3. Global variable (from script tag or CDN)
+            // 4. CDN auto-loading (last resort - requires internet, less stable)
             BrowserQRCodeReader.wasmReaderPromise = (async () => {
                 try {
-                    // Strategy 1: Check if manually injected
+                    // Strategy 1: Check if manually injected (highest priority)
                     if (BrowserQRCodeReader.wasmReaderModule) {
                         return BrowserQRCodeReader.wasmReaderModule;
                     }
                     
-                    // Strategy 2: Try global variable ZXingWASM (IIFE build from CDN or script tag)
-                    if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
-                        return (window as any).ZXingWASM;
-                    }
-                    
-                    // Strategy 2b: Try zxingWasm (if manually set)
-                    if (typeof window !== 'undefined' && (window as any).zxingWasm) {
-                        return (window as any).zxingWasm;
-                    }
-                    
-                    // Strategy 3: Try dynamic import (works in modern browsers with ES modules)
-                    // Note: This only works if zxing-wasm is available as an ES module
+                    // Strategy 2: Try npm dependency via dynamic import (ES modules)
+                    // This works when zxing-wasm is installed via npm and available as a module
+                    // Preferred over CDN for stability, version control, and offline builds
                     if (typeof window !== 'undefined') {
                         try {
                             // Dynamic import is a global function
@@ -203,7 +210,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                         }
                     }
                     
-                    // Strategy 4: Try require (for Node.js/CommonJS)
+                    // Strategy 3: Try npm dependency via require (Node.js/CommonJS)
+                    // This works in Node.js environments or bundlers that support require
                     if (typeof require !== 'undefined') {
                         try {
                             // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -213,15 +221,27 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                         }
                     }
                     
+                    // Strategy 4: Try global variable ZXingWASM (from script tag or CDN)
+                    // This is a fallback when npm dependency is not available
+                    if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
+                        return (window as any).ZXingWASM;
+                    }
+                    
+                    // Strategy 4b: Try zxingWasm (if manually set)
+                    if (typeof window !== 'undefined' && (window as any).zxingWasm) {
+                        return (window as any).zxingWasm;
+                    }
+                    
                     // Note: Removed Function-based dynamic import strategy due to CSP concerns
                     // Users should load zxing-wasm via npm, script tag, or use injectWasmReader
                     
                     throw new Error(
                         'zxing-wasm is not available. ' +
-                        'For browser use, either:\n' +
+                        'Recommended: Install via npm for stability and offline builds:\n' +
+                        '  npm install zxing-wasm\n' +
+                        'This will be auto-detected. Alternatively:\n' +
                         `1. Load via script tag: <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@${BrowserQRCodeReader.ZXING_WASM_VERSION}/dist/iife/reader/index.js"></script>\n` +
-                        '2. Install via npm: npm install zxing-wasm (will be auto-detected)\n' +
-                        '3. Use BrowserQRCodeReader.injectWasmReader({ readBarcodes })'
+                        '2. Use BrowserQRCodeReader.injectWasmReader({ readBarcodes })'
                     );
                 } catch (e) {
                     BrowserQRCodeReader.wasmLoadError = e instanceof Error ? e : new Error(String(e));
