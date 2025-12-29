@@ -6,11 +6,49 @@ import Result from '../core/Result';
 import ResultPoint from '../core/ResultPoint';
 
 /**
+ * Options for zxing-wasm readBarcodes function
+ */
+interface ZXingWasmReaderOptions {
+    formats?: string[];
+    tryHarder?: boolean;
+    tryRotate?: boolean;
+    tryInvert?: boolean;
+    tryDownscale?: boolean;
+    downscaleFactor?: number;
+    downscaleThreshold?: number;
+    maxNumberOfSymbols?: number;
+}
+
+/**
+ * Result from zxing-wasm readBarcodes function
+ */
+interface ZXingWasmResult {
+    isValid: boolean;
+    error?: string;
+    text: string;
+    format: string;
+    position?: {
+        topLeft: { x: number; y: number };
+        topRight: { x: number; y: number };
+        bottomRight: { x: number; y: number };
+        bottomLeft: { x: number; y: number };
+    };
+}
+
+/**
  * @deprecated Moving to @zxing/browser
  *
  * QR Code reader to use from browser.
  */
 export class BrowserQRCodeReader extends BrowserCodeReader {
+    // Constants for QR code size detection and downscaling
+    private static readonly LARGE_QR_CODE_THRESHOLD = 400; // pixels - canvas dimension threshold for large QR codes
+    private static readonly DEFAULT_DOWNSCALE_FACTOR = 3; // Factor for downscaling small QR codes
+    private static readonly DEFAULT_DOWNSCALE_THRESHOLD = 500; // Threshold in pixels for downscaling
+    
+    // zxing-wasm version - matches package.json dependency
+    private static readonly ZXING_WASM_VERSION = '2.2.4';
+    
     private static wasmReaderPromise: Promise<any> | null = null;
     private static wasmLoadError: Error | null = null;
     private static wasmReaderModule: any = null; // Allow manual injection
@@ -53,7 +91,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 await BrowserQRCodeReader.loadWasmFromCDN();
             } catch (e) {
                 // Silently fail - WASM will just be unavailable
-                console.debug('[BrowserQRCodeReader] Failed to auto-load zxing-wasm from CDN:', e);
+                // Note: In production, consider using a logging framework instead of console.debug
             }
         }
     }
@@ -87,15 +125,17 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             }
             
             // Create and load script
+            // Note: Using specific version for stability. Users can also load zxing-wasm via npm
+            // and it will be auto-detected, avoiding CDN dependency.
             const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js';
+            script.src = `https://cdn.jsdelivr.net/npm/zxing-wasm@${BrowserQRCodeReader.ZXING_WASM_VERSION}/dist/iife/reader/index.js`;
             script.async = true;
             script.onload = () => {
                 if ((window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
                     BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
                     resolve();
                 } else {
-                    reject(new Error('zxing-wasm script loaded but ZXingWASM.readBarcodes not found'));
+                    reject(new Error('zxing-wasm script loaded but ZXingWASM or ZXingWASM.readBarcodes not found'));
                 }
             };
             script.onerror = () => reject(new Error('Failed to load zxing-wasm from CDN'));
@@ -132,27 +172,25 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         }
         if (!BrowserQRCodeReader.wasmReaderPromise) {
             // Lazy-load WASM module. Try multiple strategies for browser compatibility:
-            // 1. Dynamic import (works in modern browsers with ES modules)
-            // 2. Global variable (if loaded via script tag)
-            // 3. Require (for Node.js/CommonJS environments)
+            // Strategy order: 1. Manual injection, 2. Global variable, 3. Dynamic import (ES modules), 4. require (Node.js/CommonJS)
             BrowserQRCodeReader.wasmReaderPromise = (async () => {
                 try {
-                    // Strategy 0: Check if manually injected
+                    // Strategy 1: Check if manually injected
                     if (BrowserQRCodeReader.wasmReaderModule) {
                         return BrowserQRCodeReader.wasmReaderModule;
                     }
                     
-                    // Strategy 1: Try global variable ZXingWASM (IIFE build from CDN)
+                    // Strategy 2: Try global variable ZXingWASM (IIFE build from CDN or script tag)
                     if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
                         return (window as any).ZXingWASM;
                     }
                     
-                    // Strategy 1b: Try zxingWasm (if manually set)
+                    // Strategy 2b: Try zxingWasm (if manually set)
                     if (typeof window !== 'undefined' && (window as any).zxingWasm) {
                         return (window as any).zxingWasm;
                     }
                     
-                    // Strategy 2: Try dynamic import (works in modern browsers with ES modules)
+                    // Strategy 3: Try dynamic import (works in modern browsers with ES modules)
                     // Note: This only works if zxing-wasm is available as an ES module
                     if (typeof window !== 'undefined') {
                         try {
@@ -165,7 +203,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                         }
                     }
                     
-                    // Strategy 3: Try require (for Node.js/CommonJS)
+                    // Strategy 4: Try require (for Node.js/CommonJS)
                     if (typeof require !== 'undefined') {
                         try {
                             // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -175,19 +213,15 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                         }
                     }
                     
-                    // Strategy 4: Try Function-based dynamic import (works in some bundlers)
-                    try {
-                        const importFunc = new Function('specifier', 'return import(specifier)');
-                        return await importFunc('zxing-wasm/reader');
-                    } catch (e) {
-                        // All strategies failed
-                    }
+                    // Note: Removed Function-based dynamic import strategy due to CSP concerns
+                    // Users should load zxing-wasm via npm, script tag, or use injectWasmReader
                     
                     throw new Error(
                         'zxing-wasm is not available. ' +
-                        'For browser use, load zxing-wasm via IIFE script tag:\n' +
-                        '<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js"></script>\n' +
-                        'This will expose ZXingWASM global variable, or use BrowserQRCodeReader.injectWasmReader({ readBarcodes })'
+                        'For browser use, either:\n' +
+                        `1. Load via script tag: <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@${BrowserQRCodeReader.ZXING_WASM_VERSION}/dist/iife/reader/index.js"></script>\n` +
+                        '2. Install via npm: npm install zxing-wasm (will be auto-detected)\n' +
+                        '3. Use BrowserQRCodeReader.injectWasmReader({ readBarcodes })'
                     );
                 } catch (e) {
                     BrowserQRCodeReader.wasmLoadError = e instanceof Error ? e : new Error(String(e));
@@ -203,7 +237,20 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
 
     /**
      * Creates an instance of BrowserQRCodeReader.
-     * @param {number} [timeBetweenScansMillis=500] the time delay between subsequent decode tries
+     * 
+     * You can construct this class in two ways:
+     * - `new BrowserQRCodeReader(timeBetweenScansMillis?)`
+     * - `new BrowserQRCodeReader(options?)`
+     * 
+     * When a `number` is provided, it is treated as the time delay between subsequent
+     * decode attempts, in milliseconds.
+     * 
+     * When an `options` object is provided, it may contain:
+     * - `timeBetweenScansMillis?: number` — time delay between subsequent decode tries (default: `500`).
+     * - `useWasm?: boolean` — whether to prefer the WASM-based reader when available (default: `true`).
+     * 
+     * @param {number | { timeBetweenScansMillis?: number; useWasm?: boolean }} [timeBetweenScansMillisOrOptions=500]
+     *        Either the time delay between subsequent decode tries, or an options object.
      */
     public constructor(timeBetweenScansMillisOrOptions: number | { timeBetweenScansMillis?: number; useWasm?: boolean } = 500) {
         const timeBetweenScansMillis =
@@ -249,14 +296,15 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             const ctx = this.getCaptureCanvasContext(element);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-            // Determine if this is likely a large/dense QR code based on canvas size
-            // Large codes (800+ chars) need full resolution - don't downscale
-            const isLikelyLargeCode = canvas.width > 400 || canvas.height > 400;
+            // Determine if this is likely a large/dense QR code based on canvas dimensions
+            // Large canvas sizes (> 400px in either dimension) need full resolution - don't downscale
+            const isLikelyLargeCode = canvas.width > BrowserQRCodeReader.LARGE_QR_CODE_THRESHOLD || 
+                                     canvas.height > BrowserQRCodeReader.LARGE_QR_CODE_THRESHOLD;
 
             const { readBarcodes } = await BrowserQRCodeReader.getWasmReader();
             
             // Build options - only include downscale options if we want to downscale
-            const options: any = {
+            const options: ZXingWasmReaderOptions = {
                 formats: ['QRCode'],
                 tryHarder: true,
                 tryRotate: true,
@@ -268,15 +316,12 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             // Only add downscale options if we want to downscale (for small codes)
             if (!isLikelyLargeCode) {
                 options.tryDownscale = true;
-                options.downscaleFactor = 3;
-                options.downscaleThreshold = 500;
+                options.downscaleFactor = BrowserQRCodeReader.DEFAULT_DOWNSCALE_FACTOR;
+                options.downscaleThreshold = BrowserQRCodeReader.DEFAULT_DOWNSCALE_THRESHOLD;
             }
             // For large codes, don't set downscale options at all (use full resolution)
             
-            console.log('[BrowserQRCodeReader] Calling readBarcodes with options:', JSON.stringify(options, null, 2));
-            const results = await readBarcodes(imageData, options);
-            
-            console.log('[BrowserQRCodeReader] readBarcodes returned', results?.length, 'results');
+            const results = await readBarcodes(imageData, options) as ZXingWasmResult[];
 
             if (!results || results.length === 0) {
                 throw new NotFoundException();
@@ -316,8 +361,35 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 throw e; // Re-throw NotFoundException - it's expected
             }
             // For any other error (WASM load failure, API mismatch, etc.), fall back
-            console.warn('[BrowserQRCodeReader] WASM decode failed, falling back to regular decode:', e);
+            // Note: In production, consider using a logging framework instead of console.warn
             return super.decodeAsync(element);
         }
+    }
+    
+    /**
+     * Extract ResultPoint array from zxing-wasm result if position data is available and valid
+     */
+    private static extractResultPoints(result: ZXingWasmResult): ResultPoint[] | null {
+        if (!result.position) {
+            return null;
+        }
+        
+        const { topLeft, topRight, bottomRight, bottomLeft } = result.position;
+        
+        // Validate that all required position points exist and have x/y coordinates
+        if (!topLeft || !topRight || !bottomRight || !bottomLeft ||
+            typeof topLeft.x !== 'number' || typeof topLeft.y !== 'number' ||
+            typeof topRight.x !== 'number' || typeof topRight.y !== 'number' ||
+            typeof bottomRight.x !== 'number' || typeof bottomRight.y !== 'number' ||
+            typeof bottomLeft.x !== 'number' || typeof bottomLeft.y !== 'number') {
+            return null;
+        }
+        
+        return [
+            new ResultPoint(topLeft.x, topLeft.y),
+            new ResultPoint(topRight.x, topRight.y),
+            new ResultPoint(bottomRight.x, bottomRight.y),
+            new ResultPoint(bottomLeft.x, bottomLeft.y),
+        ];
     }
 }
