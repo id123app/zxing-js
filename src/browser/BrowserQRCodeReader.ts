@@ -199,14 +199,33 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                     // Strategy 2: Try npm dependency via dynamic import (ES modules)
                     // This works when zxing-wasm is installed via npm and available as a module
                     // Preferred over CDN for stability, version control, and offline builds
-                    if (typeof window !== 'undefined') {
+                    // Works in: ES module contexts, bundlers (webpack, vite, rollup with proper config)
+                    try {
+                        // Try standard import path first
+                        // @ts-ignore - dynamic import may not be in types, module structure varies
+                        const module: any = await import('zxing-wasm/reader');
+                        if (module && module.readBarcodes) {
+                            return module;
+                        }
+                        // Handle default export if present
+                        if (module && module.default && module.default.readBarcodes) {
+                            return module.default;
+                        }
+                    } catch (e) {
+                        // Dynamic import failed, try alternative paths
                         try {
-                            // Dynamic import is a global function
-                            // @ts-ignore - dynamic import may not be in types
-                            const importFunc = (specifier: string) => import(specifier);
-                            return await importFunc('zxing-wasm/reader');
-                        } catch (e) {
-                            // Dynamic import failed (module not available), try other strategies
+                            // Try alternative import path (some bundlers resolve differently)
+                            // @ts-ignore
+                            const module: any = await import('zxing-wasm');
+                            if (module && module.readBarcodes) {
+                                return module;
+                            }
+                            // Handle default export if present
+                            if (module && module.default && module.default.readBarcodes) {
+                                return module.default;
+                            }
+                        } catch (e2) {
+                            // Both import paths failed, continue to next strategy
                         }
                     }
                     
@@ -214,22 +233,47 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                     // This works in Node.js environments or bundlers that support require
                     if (typeof require !== 'undefined') {
                         try {
+                            // Try standard require path
                             // eslint-disable-next-line @typescript-eslint/no-var-requires
-                            return require('zxing-wasm/reader');
+                            const module: any = require('zxing-wasm/reader');
+                            if (module && module.readBarcodes) {
+                                return module;
+                            }
+                            // Handle default export if present
+                            if (module && module.default && module.default.readBarcodes) {
+                                return module.default;
+                            }
                         } catch (e) {
-                            // require failed
+                            // Try alternative require path
+                            try {
+                                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                                const module: any = require('zxing-wasm');
+                                if (module && module.readBarcodes) {
+                                    return module;
+                                }
+                                // Handle default export if present
+                                if (module && module.default && module.default.readBarcodes) {
+                                    return module.default;
+                                }
+                            } catch (e2) {
+                                // Both require paths failed
+                            }
                         }
                     }
                     
                     // Strategy 4: Try global variable ZXingWASM (from script tag or CDN)
                     // This is a fallback when npm dependency is not available
-                    if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
-                        return (window as any).ZXingWASM;
-                    }
-                    
-                    // Strategy 4b: Try zxingWasm (if manually set)
-                    if (typeof window !== 'undefined' && (window as any).zxingWasm) {
-                        return (window as any).zxingWasm;
+                    if (typeof window !== 'undefined') {
+                        const globalZXingWASM = (window as any).ZXingWASM;
+                        if (globalZXingWASM && (globalZXingWASM.readBarcodes || globalZXingWASM.default?.readBarcodes)) {
+                            return globalZXingWASM.readBarcodes ? globalZXingWASM : globalZXingWASM.default;
+                        }
+                        
+                        // Strategy 4b: Try zxingWasm (if manually set)
+                        const globalZxingWasm = (window as any).zxingWasm;
+                        if (globalZxingWasm && (globalZxingWasm.readBarcodes || globalZxingWasm.default?.readBarcodes)) {
+                            return globalZxingWasm.readBarcodes ? globalZxingWasm : globalZxingWasm.default;
+                        }
                     }
                     
                     // Note: Removed Function-based dynamic import strategy due to CSP concerns
@@ -321,7 +365,12 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             const isLikelyLargeCode = canvas.width > BrowserQRCodeReader.LARGE_QR_CODE_THRESHOLD || 
                                      canvas.height > BrowserQRCodeReader.LARGE_QR_CODE_THRESHOLD;
 
-            const { readBarcodes } = await BrowserQRCodeReader.getWasmReader();
+            const wasmModule = await BrowserQRCodeReader.getWasmReader();
+            // Handle both direct export and default export formats
+            const readBarcodes = wasmModule.readBarcodes || wasmModule.default?.readBarcodes || wasmModule;
+            if (typeof readBarcodes !== 'function') {
+                throw new Error('zxing-wasm readBarcodes function not found in module');
+            }
             
             // Build options - only include downscale options if we want to downscale
             const options: ZXingWasmReaderOptions = {
