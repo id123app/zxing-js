@@ -65,7 +65,9 @@
     "tslint": "./node_modules/.bin/tslint \"./src/**/*.ts\""
   },
   "dependencies": {
-    "ts-custom-error": "^3.2.1",
+    "ts-custom-error": "^3.2.1"
+  },
+  "optionalDependencies": {
     "zxing-wasm": "^2.2.4"
   },
   "devDependencies": {

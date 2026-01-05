@@ -19,7 +19,7 @@ export default {
     name: 'ZXing',
     sourcemap: true,
     file: 'dist/umd/index.js',
-    // Prevent code splitting for UMD format
-    inlineDynamicImports: false,
+    // Inline dynamic imports for UMD format (UMD doesn't support code splitting)
+    inlineDynamicImports: true,
   },
 };

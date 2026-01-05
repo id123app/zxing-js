@@ -78,9 +78,11 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * CDN loading is only used as a fallback when npm dependency is not available.
      */
     private static async autoDetectWasm(): Promise<void> {
+        // Atomic check-and-set to prevent race conditions
         if (BrowserQRCodeReader.wasmAutoDetected) {
             return; // Already tried
         }
+        // Set flag immediately to prevent concurrent execution
         BrowserQRCodeReader.wasmAutoDetected = true;
         
         // First, try to detect npm dependency (preferred method)
@@ -110,7 +112,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * Note: This is only used when npm dependency is not available.
      * For production use, prefer installing zxing-wasm via npm for:
      * - Version stability (pinned versions)
-     - Offline builds
+     * - Offline builds
      * - Better security (no external CDN dependency)
      */
     private static async loadWasmFromCDN(): Promise<void> {
@@ -187,9 +189,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         if (!BrowserQRCodeReader.wasmReaderPromise) {
             // Lazy-load WASM module. Try multiple strategies in priority order:
             // 1. Manual injection (highest priority - user explicitly provided)
-            // 2. npm dependency via dynamic import/require (preferred for stability/offline builds)
-            // 3. Global variable (from script tag or CDN)
-            // 4. CDN auto-loading (last resort - requires internet, less stable)
+            // 2. npm dependency via dynamic import (ES modules; preferred for stability/offline builds)
+            // 3. npm dependency via require (CommonJS)
+            // 4. Global variable (from script tag or already-loaded CDN)
             BrowserQRCodeReader.wasmReaderPromise = (async () => {
                 try {
                     // Strategy 1: Check if manually injected (highest priority)
@@ -350,7 +352,6 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
 
         try {
             // Capture ImageData from the existing canvas pipeline
-            this.getCaptureCanvasContext(element);
             if (element instanceof HTMLVideoElement) {
                 this.drawFrameOnCanvas(element);
             } else {
@@ -411,8 +412,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             
             const decodedText = first.text;
             
-            // Extract position points if available and valid
-            const points: ResultPoint[] = BrowserQRCodeReader.extractResultPoints(first);
+            // Extract position points if available and valid (can be null)
+            const points = BrowserQRCodeReader.extractResultPoints(first);
 
             return new Result(decodedText, null, 0, points, BarcodeFormat.QR_CODE);
         } catch (e) {
