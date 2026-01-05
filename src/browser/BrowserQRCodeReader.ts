@@ -412,10 +412,12 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             
             const decodedText = first.text;
             
-            // Extract position points if available and valid (can be null)
+            // Extract position points if available and valid
             const points = BrowserQRCodeReader.extractResultPoints(first);
+            // Result constructor requires ResultPoint[], so use empty array if null
+            const safePoints: ResultPoint[] = points ?? [];
 
-            return new Result(decodedText, null, 0, points, BarcodeFormat.QR_CODE);
+            return new Result(decodedText, null, 0, safePoints, BarcodeFormat.QR_CODE);
         } catch (e) {
             // If WASM fails (module not loaded, API error, etc.), fall back to regular decode
             // This ensures backward compatibility even if zxing-wasm isn't available
