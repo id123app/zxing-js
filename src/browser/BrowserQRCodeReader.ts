@@ -59,8 +59,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * Call this before using WASM mode if zxing-wasm is loaded separately.
      * 
      * @example
-     * // After loading zxing-wasm via script tag or CDN:
-     * import { readBarcodes } from 'https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/reader/index.js';
+     * // After loading zxing-wasm via script tag, CDN, or npm:
+     * import { readBarcodes } from 'zxing-wasm/reader'; // npm install zxing-wasm
+     * // or: import { readBarcodes } from 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/reader/index.js';
      * BrowserQRCodeReader.injectWasmReader({ readBarcodes });
      */
     public static injectWasmReader(module: { readBarcodes: any }): void {
@@ -400,27 +401,18 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             
             // Check if result is valid
             if (!first.isValid) {
-                // If result has an error, log it and throw
-                const errorMsg = first.error || 'Unknown WASM decode error';
-                console.error('[BrowserQRCodeReader] WASM decode failed:', errorMsg, first);
-                throw new Error(`WASM decode failed: ${errorMsg}`);
+                // If result has an error, throw NotFoundException to trigger fallback
+                throw new NotFoundException();
             }
             
             if (!first.text) {
-                console.warn('[BrowserQRCodeReader] WASM detected QR code but text is empty');
                 throw new NotFoundException();
             }
             
             const decodedText = first.text;
             
-            const points: ResultPoint[] = (first.position?.topLeft && first.position?.topRight && first.position?.bottomRight && first.position?.bottomLeft)
-                ? [
-                    new ResultPoint(first.position.topLeft.x, first.position.topLeft.y),
-                    new ResultPoint(first.position.topRight.x, first.position.topRight.y),
-                    new ResultPoint(first.position.bottomRight.x, first.position.bottomRight.y),
-                    new ResultPoint(first.position.bottomLeft.x, first.position.bottomLeft.y),
-                ]
-                : null;
+            // Extract position points if available and valid
+            const points: ResultPoint[] = BrowserQRCodeReader.extractResultPoints(first);
 
             return new Result(decodedText, null, 0, points, BarcodeFormat.QR_CODE);
         } catch (e) {
@@ -430,7 +422,6 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 throw e; // Re-throw NotFoundException - it's expected
             }
             // For any other error (WASM load failure, API mismatch, etc.), fall back
-            // Note: In production, consider using a logging framework instead of console.warn
             return super.decodeAsync(element);
         }
     }
