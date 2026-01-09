@@ -53,6 +53,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     private static wasmLoadError: Error | null = null;
     private static wasmReaderModule: any = null; // Allow manual injection
     private static wasmAutoDetected: boolean = false; // Track if we've tried auto-detection
+    private static wasmCdnLoadPromise: Promise<void> | null = null; // Cache CDN loading promise to prevent duplicate loads
     
     /**
      * Manually inject zxing-wasm module for browser environments.
@@ -116,7 +117,12 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * - Better security (no external CDN dependency)
      */
     private static async loadWasmFromCDN(): Promise<void> {
-        return new Promise((resolve, reject) => {
+        // Return cached promise if already loading to prevent duplicate loads
+        if (BrowserQRCodeReader.wasmCdnLoadPromise) {
+            return BrowserQRCodeReader.wasmCdnLoadPromise;
+        }
+        
+        BrowserQRCodeReader.wasmCdnLoadPromise = new Promise((resolve, reject) => {
             // Check if already loaded
             if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
                 BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
@@ -127,7 +133,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             // Check if script is already being loaded
             const existingScript = document.querySelector('script[src*="zxing-wasm"]');
             if (existingScript) {
-                // Wait for it to load
+                // Wait for it to load - use { once: true } to prevent duplicate listeners
                 existingScript.addEventListener('load', () => {
                     if ((window as any).ZXingWASM) {
                         BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
@@ -135,8 +141,10 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                     } else {
                         reject(new Error('zxing-wasm script loaded but ZXingWASM global not found'));
                     }
-                });
-                existingScript.addEventListener('error', reject);
+                }, { once: true });
+                existingScript.addEventListener('error', () => {
+                    reject(new Error('Failed to load zxing-wasm from CDN'));
+                }, { once: true });
                 return;
             }
             
@@ -157,6 +165,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             script.onerror = () => reject(new Error('Failed to load zxing-wasm from CDN'));
             document.head.appendChild(script);
         });
+        
+        return BrowserQRCodeReader.wasmCdnLoadPromise;
     }
     
     /**

@@ -67,9 +67,6 @@
   "dependencies": {
     "ts-custom-error": "^3.2.1"
   },
-  "optionalDependencies": {
-    "zxing-wasm": "^2.2.4"
-  },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^7.1.3",
     "@types/chai": "^4.1.7",
@@ -108,7 +105,8 @@
     "yarn": "^1.17.3"
   },
   "optionalDependencies": {
-    "@zxing/text-encoding": "~0.9.0"
+    "@zxing/text-encoding": "~0.9.0",
+    "zxing-wasm": "^2.2.4"
   },
   "collective": {
     "type": "opencollective",
