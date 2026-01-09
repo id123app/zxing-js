@@ -11,13 +11,28 @@ import { DecodeContinuouslyCallback } from './DecodeContinuouslyCallback';
 import { HTMLCanvasElementLuminanceSource } from './HTMLCanvasElementLuminanceSource';
 import { HTMLVisualMediaElement } from './HTMLVisualMediaElement';
 import { VideoInputDevice } from './VideoInputDevice';
+import { findCandidatesL2, isLikelyBlurred, ROI, simpleContrastStretch, toGrayscale } from './SmartQRDetection';
+import { FrameAnalyzer } from '../core/qrcode/decoder/FrameAnalyzer';
 
+export type FrameHintCallback = (hint: string) => void;
+export type DecodeTimeCallback = (time: number) => void;
+
+interface SmartOpts {
+  useSmartDetect: boolean;
+  roiPadding: number;
+}
 /**
  * @deprecated Moving to @zxing/browser
  *
  * Base class for browser code reader.
  */
 export class BrowserCodeReader {
+  private lastROI?: ROI;
+  private options: SmartOpts = {
+    useSmartDetect: true,
+    roiPadding: 8
+  };
+
   /**
    * If navigator is present.
    */
@@ -65,6 +80,12 @@ export class BrowserCodeReader {
    * Delay time between decode attempts made by the scanner.
    */
   protected _timeBetweenDecodingAttempts: number = 0;
+
+  private frameAnalyzer = new FrameAnalyzer();
+  private frameHintCallback: FrameHintCallback | null = null;
+  private lastFrameHint: string = 'Starting camera...';
+  private frameAnalysisCounter: number = 0;
+  private decodeTimeCallback: DecodeTimeCallback | null = null;
 
   /** Time between two decoding tries in milli seconds. */
   get timeBetweenDecodingAttempts(): number {
@@ -146,6 +167,7 @@ export class BrowserCodeReader {
    * Creates an instance of BrowserCodeReader.
    * @param {Reader} reader The reader instance to decode the barcode
    * @param {number} [timeBetweenScansMillis=500] the time delay between subsequent successful decode tries
+   * @param {Map<DecodeHintType, any>} [_hints] Optional hints to be passed to the reader
    *
    * @memberOf BrowserCodeReader
    */
@@ -160,11 +182,11 @@ export class BrowserCodeReader {
    */
   public async listVideoInputDevices(): Promise<MediaDeviceInfo[]> {
     if (!this.hasNavigator) {
-      throw new Error("Can't enumerate devices, navigator is not present.");
+      throw new Error('Can\'t enumerate devices, navigator is not present.');
     }
 
     if (!this.canEnumerateDevices) {
-      throw new Error("Can't enumerate devices, method not supported.");
+      throw new Error('Can\'t enumerate devices, method not supported.');
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -222,7 +244,7 @@ export class BrowserCodeReader {
    * Decodes the barcode from the device specified by deviceId while showing the video in the specified video element.
    *
    * @param deviceId the id of one of the devices obtained after calling getVideoInputDevices. Can be undefined, in this case it will decode from one of the available devices, preffering the main camera (environment facing) if available.
-   * @param video the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param videoSource the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
    * @returns The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -240,7 +262,7 @@ export class BrowserCodeReader {
    * In one attempt, tries to decode the barcode from the device specified by deviceId while showing the video in the specified video element.
    *
    * @param deviceId the id of one of the devices obtained after calling getVideoInputDevices. Can be undefined, in this case it will decode from one of the available devices, preffering the main camera (environment facing) if available.
-   * @param video the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param videoSource the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
    * @returns The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -268,7 +290,7 @@ export class BrowserCodeReader {
    * In one attempt, tries to decode the barcode from a stream obtained from the given constraints while showing the video in the specified video element.
    *
    * @param constraints the media stream constraints to get s valid media stream to decode from
-   * @param video the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param videoSource the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
    * @returns The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -285,8 +307,8 @@ export class BrowserCodeReader {
   /**
    * In one attempt, tries to decode the barcode from a stream obtained from the given constraints while showing the video in the specified video element.
    *
-   * @param {MediaStream} [constraints] the media stream constraints to get s valid media stream to decode from
-   * @param {string|HTMLVideoElement} [video] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {MediaStream} [stream] the media stream constraints to get s valid media stream to decode from
+   * @param {string|HTMLVideoElement} [videoSource] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
    * @returns {Promise<Result>} The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -298,16 +320,16 @@ export class BrowserCodeReader {
     this.reset();
 
     const video = await this.attachStreamToVideo(stream, videoSource);
-    const result = await this.decodeOnce(video);
 
-    return result;
+    return await this.decodeOnce(video);
   }
 
   /**
    * Continuously decodes the barcode from the device specified by device while showing the video in the specified video element.
    *
    * @param {string|null} [deviceId] the id of one of the devices obtained after calling getVideoInputDevices. Can be undefined, in this case it will decode from one of the available devices, preffering the main camera (environment facing) if available.
-   * @param {string|HTMLVideoElement|null} [video] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {string|HTMLVideoElement|null} [videoSource] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {DecodeContinuouslyCallback} [callbackFn] the function to be called after each decode attempt, either successful or not.
    * @returns {Promise<void>}
    *
    * @memberOf BrowserCodeReader
@@ -326,7 +348,8 @@ export class BrowserCodeReader {
    * Continuously tries to decode the barcode from the device specified by device while showing the video in the specified video element.
    *
    * @param {string|null} [deviceId] the id of one of the devices obtained after calling getVideoInputDevices. Can be undefined, in this case it will decode from one of the available devices, preffering the main camera (environment facing) if available.
-   * @param {string|HTMLVideoElement|null} [video] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {string|HTMLVideoElement|null} [videoSource] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {DecodeContinuouslyCallback} [callbackFn] the function to be called after each decode attempt, either successful or not.
    * @returns {Promise<void>}
    *
    * @memberOf BrowserCodeReader
@@ -357,7 +380,8 @@ export class BrowserCodeReader {
    * Continuously tries to decode the barcode from a stream obtained from the given constraints while showing the video in the specified video element.
    *
    * @param {MediaStream} [constraints] the media stream constraints to get s valid media stream to decode from
-   * @param {string|HTMLVideoElement} [video] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {string|HTMLVideoElement} [videoSource] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {DecodeContinuouslyCallback} [callbackFn] the function to be called after each decode attempt, either successful or not.
    * @returns {Promise<Result>} The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -375,8 +399,9 @@ export class BrowserCodeReader {
   /**
    * In one attempt, tries to decode the barcode from a stream obtained from the given constraints while showing the video in the specified video element.
    *
-   * @param {MediaStream} [constraints] the media stream constraints to get s valid media stream to decode from
-   * @param {string|HTMLVideoElement} [video] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {MediaStream} [stream] the media stream constraints to get s valid media stream to decode from
+   * @param {string|HTMLVideoElement} [videoSource] the video element in page where to show the video while decoding. Can be either an element id or directly an HTMLVideoElement. Can be undefined, in which case no video will be shown.
+   * @param {DecodeContinuouslyCallback} [callbackFn] the function to be called after each decode attempt, either successful or not.
    * @returns {Promise<Result>} The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -411,7 +436,7 @@ export class BrowserCodeReader {
    * Sets the new stream and request a new decoding-with-delay.
    *
    * @param stream The stream to be shown in the video element.
-   * @param decodeFn A callback for the decode method.
+   * @param videoSource A callback for the decode method.
    */
   protected async attachStreamToVideo(
     stream: MediaStream,
@@ -436,7 +461,7 @@ export class BrowserCodeReader {
   protected playVideoOnLoadAsync(
     videoElement: HTMLVideoElement
   ): Promise<void> {
-    return new Promise((resolve, reject) =>
+    return new Promise((resolve) =>
       this.playVideoOnLoad(videoElement, () => resolve())
     );
   }
@@ -571,7 +596,8 @@ export class BrowserCodeReader {
    * Decodes continuously the barcode from a video.
    *
    * @param {(string|HTMLImageElement)} [source] The image element that can be either an element id or the element itself. Can be undefined in which case the decoding will be done from the imageUrl parameter.
-   * @param {string} [url]
+   * @param {string} [url] The URL of the video to decode from.
+   * @param {DecodeContinuouslyCallback} callbackFn A callback for the decode method.
    * @returns {Promise<Result>} The decoding result.
    *
    * @memberOf BrowserCodeReader
@@ -907,32 +933,69 @@ export class BrowserCodeReader {
       try {
         const result = await this.decodeAsync(element);
         callbackFn(result, null);
-        setTimeout(loop, this.timeBetweenScansMillis);
+
+        // update lastROI from result points (sticky ROI)
+        try {
+          const canvas = this.getCaptureCanvas(element);
+          const roi = this.computeROIFromResultPoints(result, canvas.width, canvas.height);
+          if (roi) {
+            this.lastROI = roi;
+          }
+        } catch {
+          // ignore ROI update errors — keep existing ROI if any
+        }
+
+        // Use constant frame rate regardless of success/failure
+        requestAnimationFrame(loop);
       } catch (e) {
         callbackFn(null, e);
 
-        const isChecksumOrFormatError =
-          e instanceof ChecksumException || e instanceof FormatException;
-        const isNotFound = e instanceof NotFoundException;
-
-        if (isChecksumOrFormatError || isNotFound) {
-          // trying again
-          setTimeout(loop, this._timeBetweenDecodingAttempts);
+        if (e instanceof NotFoundException) {
+          // Clear lastROI when no code is found
+          this.lastROI = undefined;
         }
+
+        // Keep scanning at consistent rate even when no QR found
+        requestAnimationFrame(loop);
       }
     };
 
     void loop();
   }
 
+  public setFrameHintCallback(callback: FrameHintCallback): void {
+    this.frameHintCallback = callback;
+  }
+
+  public setDecodeTimeCallback(callback: DecodeTimeCallback): void {
+    this.decodeTimeCallback = callback;
+  }
+
   /**
    * Gets the BinaryBitmap for ya! (and decodes it)
    */
   public decode(element: HTMLVisualMediaElement): Result {
-    // get binary bitmap for decode function
-    const binaryBitmap = this.createBinaryBitmap(element);
-
-    return this.decodeBitmap(binaryBitmap);
+    // try decode with ROI; on error, fallback once to full frame
+    let triedFullFrame = false;
+    try {
+      const binaryBitmap = this.createBinaryBitmap(element);
+      return this.decodeBitmap(binaryBitmap);
+    } catch (e) {
+      if (!triedFullFrame && this.lastROI) {
+        triedFullFrame = true;
+        // try full-frame once
+        const prevROI = this.lastROI;
+        try {
+          this.lastROI = undefined;
+          const binaryBitmap = this.createBinaryBitmap(element);
+          return this.decodeBitmap(binaryBitmap);
+        } finally {
+          // keep lastROI cleared after failed ROI decode to avoid repeated ROI-only stalls
+          this.lastROI = undefined;
+        }
+      }
+      throw e;
+    }
   }
 
   /**
@@ -944,24 +1007,143 @@ export class BrowserCodeReader {
     mediaElement: HTMLVisualMediaElement
   ): BinaryBitmap {
     const ctx = this.getCaptureCanvasContext(mediaElement);
-    // doing a scan with inverted colors on the second scan should only happen for video elements
-    let doAutoInvert = false;
-    if (mediaElement instanceof HTMLVideoElement) {
-      this.drawFrameOnCanvas(<HTMLVideoElement>mediaElement);
-      doAutoInvert = true;
-    } else {
-      this.drawImageOnCanvas(<HTMLImageElement>mediaElement);
-    }
     const canvas = this.getCaptureCanvas(mediaElement);
+    const { width: W, height: H } = canvas;
 
-    const luminanceSource = new HTMLCanvasElementLuminanceSource(canvas, doAutoInvert);
-    const hybridBinarizer = new HybridBinarizer(luminanceSource);
+    if (mediaElement instanceof HTMLVideoElement) {
+      this.drawFrameOnCanvas(mediaElement);
+    } else {
+      this.drawImageOnCanvas(mediaElement);
+    }
 
-    return new BinaryBitmap(hybridBinarizer);
+    const imageData = ctx.getImageData(0, 0, W, H);
+    // compute grayscale and apply a tiny, cheap enhancement only when frame looks blurry
+    let gray = toGrayscale(imageData.data, W, H);
+    try {
+      if (isLikelyBlurred(gray, W, H)) {
+        // small contrast boost around midtones — cheap and often helpful for blurry/low-contrast frames
+        simpleContrastStretch(imageData, 1.4);
+        ctx.putImageData(imageData, 0, 0);
+        // recompute grayscale from enhanced pixels
+        gray = toGrayscale(imageData.data, W, H);
+      }
+    } catch {
+      // silent fallback to original gray on any error
+    }
+
+    let src = new HTMLCanvasElementLuminanceSource(canvas, mediaElement instanceof HTMLVideoElement);
+
+    if (this.options.useSmartDetect) {
+      const calcPad = (roiW?: number, roiH?: number) => this.calcPadFromModule(roiW, roiH, W, H);
+
+      const inflate = (r: ROI) => {
+        const pad = calcPad(r.w, r.h);
+        const x = Math.max(0, Math.floor(r.x - pad));
+        const y = Math.max(0, Math.floor(r.y - pad));
+        const w2 = Math.min(W - x, Math.floor(r.w + 2 * pad));
+        const h2 = Math.min(H - y, Math.floor(r.h + 2 * pad));
+        return { x, y, w: w2, h: h2 };
+      };
+
+      // Try ROI detection
+      try {
+        if (this.lastROI) {
+          const r = inflate(this.lastROI);
+          const roiSrc = src.crop(r.x, r.y, r.w, r.h);
+          return new BinaryBitmap(new HybridBinarizer(roiSrc));
+        }
+
+        const roi = findCandidatesL2(gray, W, H);
+        if (roi) {
+          // Validate ROI size (allow very small, but require minimal area)
+          if (roi.w >= 2 && roi.h >= 2) {
+            const r = inflate(roi);
+            this.lastROI = roi;
+            const roiSrc = src.crop(r.x, r.y, r.w, r.h);
+            return new BinaryBitmap(new HybridBinarizer(roiSrc));
+          }
+        }
+      } catch (e) {
+        // On any error, fall back to full frame and clear ROI
+        this.lastROI = undefined;
+      }
+    }
+
+    // Fall back to full frame if ROI detection fails
+    return new BinaryBitmap(new HybridBinarizer(src));
   }
 
   /**
-   *
+   * Estimate padding in pixels from module size and ROI size.
+   * quietZone = 8 * module, plus growth percentage (~30% of ROI)
+   * fallback min 20-24 px.
+   */
+  private calcPadFromModule(roiW?: number, roiH?: number, W?: number, H?: number): number {
+    const MIN_PAD = 20;
+    const growPct = 0.30;
+    if (roiW && roiH && roiW > 0 && roiH > 0) {
+      // assume at least 21 modules across small QR (version 1)
+      const estModules = 21;
+      const estModule = Math.max(1, Math.min(roiW, roiH) / estModules);
+      const quietZone = 8 * estModule;
+      const grow = Math.max(0, Math.round(Math.max(roiW, roiH) * growPct));
+      const pad = Math.round(quietZone + grow);
+      const maxPad = Math.floor(Math.min(W || 0, H || 0) / 2);
+      return Math.max(MIN_PAD, Math.min(pad, Math.max(MIN_PAD, maxPad)));
+    }
+
+    // No estimate -> use safe minimum padding
+    return 24;
+  }
+
+  /**
+   * Compute ROI from decode Result points (ResultPoint[] or similar).
+   */
+  private computeROIFromResultPoints(result: Result, W: number, H: number): ROI | undefined {
+    if (!result) return undefined;
+    // obtain points array from possible shapes of Result
+    // try method getResultPoints(), or property resultPoints, or points
+    // each point may use getX/getY or x/y
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyRes: any = result as any;
+    const rawPoints = (typeof anyRes.getResultPoints === 'function' && anyRes.getResultPoints()) ||
+      anyRes.resultPoints || anyRes.points || [];
+
+    if (!rawPoints || !rawPoints.length) return undefined;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of rawPoints) {
+      if (!p) continue;
+      const x = typeof p.getX === 'function' ? p.getX() : (p.x !== undefined ? p.x : (p[0] !== undefined ? p[0] : NaN));
+      const y = typeof p.getY === 'function' ? p.getY() : (p.y !== undefined ? p.y : (p[1] !== undefined ? p[1] : NaN));
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+      return undefined;
+    }
+
+    const w = Math.max(2, Math.ceil(maxX - minX));
+    const h = Math.max(2, Math.ceil(maxY - minY));
+    const pad = this.calcPadFromModule(w, h, W, H);
+
+    const x = Math.max(0, Math.floor(minX - pad));
+    const y = Math.max(0, Math.floor(minY - pad));
+    const ww = Math.min(W - x, Math.floor(w + 2 * pad));
+    const hh = Math.min(H - y, Math.floor(h + 2 * pad));
+
+    return { x, y, w: ww, h: hh };
+  }
+
+
+
+  /**
+   * Draws the current video frame in a canvas.
    */
   protected getCaptureCanvasContext(mediaElement?: HTMLVisualMediaElement) {
     if (!this.captureCanvasContext) {
@@ -985,8 +1167,7 @@ export class BrowserCodeReader {
     mediaElement?: HTMLVisualMediaElement
   ): HTMLCanvasElement {
     if (!this.captureCanvas) {
-      const elem = this.createCaptureCanvas(mediaElement);
-      this.captureCanvas = elem;
+      this.captureCanvas = this.createCaptureCanvas(mediaElement);
     }
 
     return this.captureCanvas;
@@ -1225,5 +1406,53 @@ export class BrowserCodeReader {
     }
 
     this.videoElement.removeAttribute('src');
+  }
+
+  /**
+   * Continuous frame analysis independent of QR code detection
+   */
+  private startContinuousFrameAnalysis(videoElement: HTMLVisualMediaElement): void {
+    const analyzeFrame = () => {
+      if (this._stopContinuousDecode) {
+        return;
+      }
+
+      try {
+        // Analyze frame every 15 frames for performance
+        this.frameAnalysisCounter++;
+        if (this.frameAnalysisCounter >= 15) {
+          this.analyzeCurrentFrame(videoElement);
+          this.frameAnalysisCounter = 0;
+        }
+      } catch (e) {
+        console.debug('Error in frame analysis:', e);
+      }
+
+      requestAnimationFrame(analyzeFrame);
+    };
+
+    analyzeFrame();
+  }
+
+  private analyzeCurrentFrame(videoElement: HTMLVisualMediaElement): void {
+    try {
+      const binaryMatrix = this.createBinaryBitmap(videoElement);
+      const hint = this.frameAnalyzer.analyzeFrame(binaryMatrix.getBlackMatrix());
+
+      this.updateFrameHint(hint);
+    } catch (e) {
+      console.debug('Error analyzing current frame:', e);
+      this.updateFrameHint('Analysis error - adjusting camera');
+    }
+  }
+
+  private updateFrameHint(hint: string): void {
+    if (this.lastFrameHint !== hint) {
+      this.lastFrameHint = hint;
+      // Notify callback if set
+      if (this.frameHintCallback) {
+        this.frameHintCallback(hint);
+      }
+    }
   }
 }
