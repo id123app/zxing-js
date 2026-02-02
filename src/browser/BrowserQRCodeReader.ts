@@ -52,7 +52,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     private static wasmReaderPromise: Promise<any> | null = null;
     private static wasmLoadError: Error | null = null;
     private static wasmReaderModule: any = null; // Allow manual injection
-    private static wasmAutoDetected: boolean = false; // Track if we've tried auto-detection
+    private static wasmAutoDetectPromise: Promise<void> | null = null; // Cache auto-detection promise to prevent race conditions
     private static wasmCdnLoadPromise: Promise<void> | null = null; // Cache CDN loading promise to prevent duplicate loads
     
     /**
@@ -79,32 +79,34 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * CDN loading is only used as a fallback when npm dependency is not available.
      */
     private static async autoDetectWasm(): Promise<void> {
-        // Atomic check-and-set to prevent race conditions
-        if (BrowserQRCodeReader.wasmAutoDetected) {
-            return; // Already tried
-        }
-        // Set flag immediately to prevent concurrent execution
-        BrowserQRCodeReader.wasmAutoDetected = true;
-        
-        // First, try to detect npm dependency (preferred method)
-        // This happens automatically in getWasmReader() via dynamic import/require
-        
-        // Then check for ZXingWASM global (from script tag or CDN)
-        if (typeof window !== 'undefined' && (window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
-            BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
-            return;
+        // Return cached promise if already detecting to prevent race conditions
+        if (BrowserQRCodeReader.wasmAutoDetectPromise) {
+            return BrowserQRCodeReader.wasmAutoDetectPromise;
         }
         
-        // Last resort: try to load from CDN (only if npm dependency and global are not available)
-        // This requires internet connection and is less stable than npm dependency
-        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-            try {
-                await BrowserQRCodeReader.loadWasmFromCDN();
-            } catch (e) {
-                // Silently fail - WASM will just be unavailable
-                // Note: In production, consider using a logging framework instead of console.debug
+        BrowserQRCodeReader.wasmAutoDetectPromise = (async () => {
+            // First, try to detect npm dependency (preferred method)
+            // This happens automatically in getWasmReader() via dynamic import/require
+            
+            // Then check for ZXingWASM global (from script tag or CDN)
+            if (typeof window !== 'undefined' && (window as any).ZXingWASM && (window as any).ZXingWASM.readBarcodes) {
+                BrowserQRCodeReader.injectWasmReader({ readBarcodes: (window as any).ZXingWASM.readBarcodes });
+                return;
             }
-        }
+            
+            // Last resort: try to load from CDN (only if npm dependency and global are not available)
+            // This requires internet connection and is less stable than npm dependency
+            if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+                try {
+                    await BrowserQRCodeReader.loadWasmFromCDN();
+                } catch (e) {
+                    // Silently fail - WASM will just be unavailable
+                    // Note: In production, consider using a logging framework instead of console.debug
+                }
+            }
+        })();
+        
+        return BrowserQRCodeReader.wasmAutoDetectPromise;
     }
     
     /**
