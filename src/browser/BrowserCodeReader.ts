@@ -157,6 +157,26 @@ export class BrowserCodeReader {
 
   /**
    * Lists all the available video input devices.
+   * 
+   * @throws {Error} If navigator is not present or MediaDevices API is not available.
+   * 
+   * @remarks
+   * This method requires:
+   * - A secure context (HTTPS or localhost)
+   * - Browser support for MediaDevices API
+   * - Proper permissions (may require user interaction first)
+   * 
+   * Before calling this method, check availability using:
+   * ```typescript
+   * if (reader.canEnumerateDevices) {
+   *   const devices = await reader.listVideoInputDevices();
+   * } else {
+   *   // Handle gracefully - API not available
+   *   console.warn('Device enumeration not supported in this environment');
+   * }
+   * ```
+   * 
+   * @returns {Promise<MediaDeviceInfo[]>} Array of available video input devices
    */
   public async listVideoInputDevices(): Promise<MediaDeviceInfo[]> {
     if (!this.hasNavigator) {
@@ -164,7 +184,14 @@ export class BrowserCodeReader {
     }
 
     if (!this.canEnumerateDevices) {
-      throw new Error("Can't enumerate devices, method not supported.");
+      // Provide more helpful error message explaining why enumerateDevices is not available
+      let reason = 'method not supported';
+      if (!this.isMediaDevicesSuported) {
+        reason = 'navigator.mediaDevices is not available. This may be due to: (1) Not running on HTTPS/localhost (MediaDevices API requires secure context), (2) Browser does not support MediaDevices API, or (3) Missing required permissions.';
+      } else if (!navigator.mediaDevices.enumerateDevices) {
+        reason = 'navigator.mediaDevices.enumerateDevices is not available. This may be due to: (1) Browser does not support enumerateDevices, (2) Missing required permissions, or (3) Running in an unsupported environment.';
+      }
+      throw new Error(`Can't enumerate devices, ${reason}`);
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
