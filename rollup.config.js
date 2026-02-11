@@ -9,7 +9,7 @@ export default {
   ],
   plugins: [
     resolve({
-      // Don't try to resolve external dependencies
+      // Don't prefer Node.js built-ins over bundled/browser versions (externals are controlled via `external` above)
       preferBuiltins: false,
     }),
   ],

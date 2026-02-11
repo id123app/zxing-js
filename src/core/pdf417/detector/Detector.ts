@@ -216,12 +216,11 @@ export default /*public*/ /*final*/ class Detector {
     // Last row of the current symbol that contains pattern
     if (found) {
       let skippedRowCount = 0;
-      // TS 5+ uses generic typed arrays (Int32Array<ArrayBufferLike>), which can trip assignment
-      // depending on lib definitions. Keep this unparameterized for broad compatibility.
-      let previousRowLoc: Int32Array = Int32Array.from([
+      // Initialize previousRowLoc from the first result point coordinates
+      let previousRowLoc: Int32Array = new Int32Array([
         <int> Math.trunc(result[0].getX()),
         <int> Math.trunc(result[1].getX()),
-      ]) as unknown as Int32Array;
+      ]);
       for (; stopRow < height; stopRow++) {
         const loc = Detector.findGuardPattern(matrix, previousRowLoc[0], stopRow, width, false, pattern, counters);
         // a found pattern is only considered to belong to the same barcode if the start and end positions
@@ -231,7 +230,7 @@ export default /*public*/ /*final*/ class Detector {
         if (loc != null &&
             Math.abs(previousRowLoc[0] - loc[0]) < Detector.MAX_PATTERN_DRIFT &&
             Math.abs(previousRowLoc[1] - loc[1]) < Detector.MAX_PATTERN_DRIFT) {
-          previousRowLoc = loc as unknown as Int32Array;
+          previousRowLoc = loc;
           skippedRowCount = 0;
         } else {
           if (skippedRowCount > Detector.SKIPPED_ROW_COUNT_MAX) {
@@ -267,7 +266,7 @@ export default /*public*/ /*final*/ class Detector {
                                          width: /*int*/ number,
                                          whiteFirst: boolean,
                                          pattern: Int32Array,
-                                         counters: Int32Array): Int32Array {
+                                         counters: Int32Array): Int32Array | null {
     Arrays.fillWithin(counters, 0, counters.length, 0);
     let patternStart = column;
     let pixelDrift = 0;

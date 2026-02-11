@@ -523,6 +523,15 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         }
 
         try {
+            // Initialize canvas and context first before drawing
+            const canvas = this.getCaptureCanvas(element);
+            const ctx = this.getCaptureCanvasContext(element);
+            
+            // Validate canvas and context are available
+            if (!canvas || !ctx) {
+                throw new Error('Failed to get capture canvas or context');
+            }
+
             // Validate element is ready before attempting to draw
             if (element instanceof HTMLVideoElement) {
                 // Check if video is ready (readyState >= 2 means HAVE_CURRENT_DATA - enough data loaded for current frame)
@@ -536,8 +545,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                     throw new Error(`Video element has invalid dimensions: ${element.videoWidth}x${element.videoHeight}`);
                 }
                 // Draw frame on canvas - can throw SecurityError if canvas is tainted (CORS issue)
+                // Pass ctx explicitly to ensure it's initialized
                 try {
-                    this.drawFrameOnCanvas(element);
+                    this.drawFrameOnCanvas(element, undefined, ctx);
                 } catch (drawError) {
                     throw new Error(`Failed to draw video frame on canvas: ${drawError instanceof Error ? drawError.message : String(drawError)}`);
                 }
@@ -550,8 +560,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                     throw new Error(`Image element has invalid dimensions: ${element.naturalWidth}x${element.naturalHeight}`);
                 }
                 // Draw image on canvas - can throw SecurityError if canvas is tainted (CORS issue)
+                // Pass ctx explicitly to ensure it's initialized
                 try {
-                    this.drawImageOnCanvas(element);
+                    this.drawImageOnCanvas(element, undefined, ctx);
                 } catch (drawError) {
                     throw new Error(`Failed to draw image on canvas: ${drawError instanceof Error ? drawError.message : String(drawError)}`);
                 }
@@ -560,14 +571,6 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 // but we keep this for runtime safety and better error messages
                 const elementType = (element as any).constructor?.name || typeof element;
                 throw new Error(`Unsupported element type: ${elementType}`);
-            }
-
-            const canvas = this.getCaptureCanvas(element);
-            const ctx = this.getCaptureCanvasContext(element);
-            
-            // Validate canvas and context are available
-            if (!canvas || !ctx) {
-                throw new Error('Failed to get canvas or context for image capture');
             }
             
             // Validate canvas dimensions
