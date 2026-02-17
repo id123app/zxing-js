@@ -6,6 +6,9 @@ import NotFoundException from '../core/NotFoundException';
 import Result from '../core/Result';
 import ResultPoint from '../core/ResultPoint';
 
+// Import zxing-wasm - will be bundled in UMD builds
+import { readBarcodes } from 'zxing-wasm/reader';
+
 /**
  * Options for zxing-wasm readBarcodes function
  */
@@ -46,14 +49,7 @@ interface ZXingWasmResult {
  * QR Code reader to use from browser.
  */
 export class BrowserQRCodeReader extends BrowserCodeReader {
-    // zxing-wasm version - matches package.json dependency
-    private static readonly ZXING_WASM_VERSION = '2.2.4';
-    
-    private static wasmReaderPromise: Promise<any> | null = null;
-    private static wasmLoadError: Error | null = null;
     private static wasmReaderModule: any = null; // Allow manual injection
-    private static wasmAutoDetectPromise: Promise<void> | null = null; // Cache auto-detection promise to prevent race conditions
-    private static wasmCdnLoadPromise: Promise<void> | null = null; // Cache CDN loading promise to prevent duplicate loads
     
     /**
      * Reset all static WASM-related caches so that they can be garbage collected.
@@ -64,24 +60,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * decodeAsync() call after this method is called.
      */
     public static resetWasm(): void {
-        BrowserQRCodeReader.wasmReaderPromise = null;
-        BrowserQRCodeReader.wasmLoadError = null;
         BrowserQRCodeReader.wasmReaderModule = null;
-        BrowserQRCodeReader.wasmAutoDetectPromise = null;
-        BrowserQRCodeReader.wasmCdnLoadPromise = null;
-        BrowserQRCodeReader.invalidateInstanceCaches(); // Invalidate instance caches
-    }
-
-    /**
-     * Explicitly clear the last recorded WASM load error.
-     * 
-     * This can be used by consumers who, after handling or bypassing a load failure
-     * (for example, via manual injection), want to reset the error state.
-     * All existing instances will re-check WASM availability on their next decodeAsync() call.
-     */
-    public static clearWasmLoadError(): void {
-        BrowserQRCodeReader.wasmLoadError = null;
-        BrowserQRCodeReader.invalidateInstanceCaches(); // Invalidate instance caches to allow retry
     }
     
     /**
@@ -96,9 +75,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * @throws Error if module or module.readBarcodes is invalid
      * 
      * @example
-     * // After loading zxing-wasm via script tag, CDN, or npm:
+     * // After loading zxing-wasm via script tag or npm:
      * import { readBarcodes } from 'zxing-wasm/reader'; // npm install zxing-wasm
-     * // or: import { readBarcodes } from 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/reader/index.js';
      * BrowserQRCodeReader.injectWasmReader({ readBarcodes });
      */
     public static injectWasmReader(module: { readBarcodes: any }): void {
@@ -109,339 +87,59 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             throw new Error('injectWasmReader: module.readBarcodes must be a function');
         }
         BrowserQRCodeReader.wasmReaderModule = module;
-        BrowserQRCodeReader.wasmReaderPromise = Promise.resolve(module);
-        BrowserQRCodeReader.wasmLoadError = null; // Clear error since injection succeeded
-        BrowserQRCodeReader.invalidateInstanceCaches(); // Invalidate instance caches
     }
     
     /**
-     * Auto-detect and inject WASM if available from global variables or CDN.
-     * 
-     * Note: This method only checks for global variables (ZXingWASM) and attempts CDN loading.
-     * npm dependency detection happens lazily on the first decode attempt when getWasmReader() 
-     * is called (e.g. via isWasmAvailable() or decodeAsync()).
-     * 
-     * Priority order for full detection (including npm):
-     * 1) Manual injection (via injectWasmReader)
-     * 2) npm dependency (detected in getWasmReader)
-     * 3) Global variable (from script tag or CDN)
-     * 4) CDN loading (last resort)
+     * Auto-detect and inject WASM if available from global variables.
      */
-    private static async autoDetectWasm(): Promise<void> {
-        // Return cached promise if already detecting to prevent race conditions
-        if (BrowserQRCodeReader.wasmAutoDetectPromise) {
-            return BrowserQRCodeReader.wasmAutoDetectPromise;
-        }
-        
-        BrowserQRCodeReader.wasmAutoDetectPromise = (async () => {
-            // Note: npm dependency detection is not performed here; it happens lazily on the first
-            // decode attempt when getWasmReader() is called (e.g. via isWasmAvailable() or decodeAsync()).
-            
-            // Check for ZXingWASM global (from script tag or CDN)
-            if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
-                const globalZXingWASM = (window as any).ZXingWASM;
-                // Validate readBarcodes is a function before calling injectWasmReader
-                if (typeof globalZXingWASM.readBarcodes === 'function') {
-                    try {
-                        BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
-                        return;
-                    } catch (e) {
-                        // If injection fails, continue to next strategy
-                    }
-                }
-            }
-            
-            // Last resort: try to load from CDN (only if npm dependency and global are not available)
-            // This requires internet connection and is less stable than npm dependency
-            if (typeof window !== 'undefined' && typeof document !== 'undefined' && document !== null) {
+    private static autoDetectWasm(): void {
+        // Check for ZXingWASM global (from script tag)
+        if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
+            const globalZXingWASM = (window as any).ZXingWASM;
+            if (typeof globalZXingWASM.readBarcodes === 'function') {
                 try {
-                    await BrowserQRCodeReader.loadWasmFromCDN();
+                    BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
                 } catch (e) {
-                    // Silently fail - WASM will just be unavailable
-                    // Note: In production, consider using a logging framework instead of console.debug
+                    // If injection fails, silently continue
                 }
             }
-        })();
-        
-        return BrowserQRCodeReader.wasmAutoDetectPromise;
-    }
-    
-    /**
-     * Dynamically load zxing-wasm from CDN (last resort fallback).
-     * 
-     * Note: This is only used when npm dependency is not available.
-     * For production use, prefer installing zxing-wasm via npm for:
-     * - Version stability (pinned versions)
-     * - Offline builds
-     * - Better security (no external CDN dependency)
-     */
-    private static async loadWasmFromCDN(): Promise<void> {
-        // Return cached promise if already loading to prevent duplicate loads
-        if (BrowserQRCodeReader.wasmCdnLoadPromise) {
-            return BrowserQRCodeReader.wasmCdnLoadPromise;
         }
-        
-        BrowserQRCodeReader.wasmCdnLoadPromise = new Promise((resolve, reject) => {
-            // Capture document reference to avoid stale reference issues
-            const doc = typeof document !== 'undefined' ? document : null;
-            if (!doc || !doc.head) {
-                reject(new Error('document or document.head is not available'));
-                return;
-            }
-            
-            // Check if already loaded
-            if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
-                const globalZXingWASM = (window as any).ZXingWASM;
-                // Validate readBarcodes is a function before calling injectWasmReader
-                if (typeof globalZXingWASM.readBarcodes === 'function') {
-                    try {
-                        BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
-                        resolve();
-                        return;
-                    } catch (e) {
-                        // If injection fails, continue to script loading
-                    }
-                }
-            }
-            
-            // Check if script is already being loaded
-            const existingScript = doc.querySelector('script[src*="zxing-wasm"]');
-            if (existingScript) {
-                // Wait for it to load - use { once: true } to prevent duplicate listeners
-                existingScript.addEventListener('load', () => {
-                    const globalZXingWASM = (window as any).ZXingWASM;
-                    if (globalZXingWASM && typeof globalZXingWASM.readBarcodes === 'function') {
-                        try {
-                            BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
-                            resolve();
-                        } catch (e) {
-                            reject(new Error('zxing-wasm script loaded but injection failed'));
-                        }
-                    } else {
-                        reject(new Error('zxing-wasm script loaded but ZXingWASM or ZXingWASM.readBarcodes not found'));
-                    }
-                }, { once: true });
-                existingScript.addEventListener('error', () => {
-                    reject(new Error('Failed to load zxing-wasm from CDN'));
-                }, { once: true });
-                return;
-            }
-            
-            // Create and load script
-            // Note: Using specific version for stability. Users can also load zxing-wasm via npm
-            // and it will be auto-detected, avoiding CDN dependency.
-            const script = doc.createElement('script');
-            script.src = `https://cdn.jsdelivr.net/npm/zxing-wasm@${BrowserQRCodeReader.ZXING_WASM_VERSION}/dist/iife/reader/index.js`;
-            script.async = true;
-            script.onload = () => {
-                const globalZXingWASM = (window as any).ZXingWASM;
-                if (globalZXingWASM && typeof globalZXingWASM.readBarcodes === 'function') {
-                    try {
-                        BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
-                        resolve();
-                    } catch (e) {
-                        reject(new Error('zxing-wasm script loaded but injection failed'));
-                    }
-                } else {
-                    reject(new Error('zxing-wasm script loaded but ZXingWASM or ZXingWASM.readBarcodes not found'));
-                }
-            };
-            script.onerror = () => reject(new Error('Failed to load zxing-wasm from CDN'));
-            doc.head.appendChild(script);
-        });
-        
-        return BrowserQRCodeReader.wasmCdnLoadPromise;
     }
     
     /**
      * Check if WASM is available (without throwing).
      * 
-     * This method can be used to check WASM availability before attempting to decode.
-     * It will attempt to detect and load WASM if not already done.
-     * 
-     * @returns Promise that resolves to true if WASM is available, false otherwise
+     * @returns true if WASM is available, false otherwise
      */
-    public static async isWasmAvailable(): Promise<boolean> {
-        await BrowserQRCodeReader.autoDetectWasm();
-        
-        if (BrowserQRCodeReader.wasmReaderModule) {
-            return true;
-        }
-        
-        if (BrowserQRCodeReader.wasmLoadError) {
-            return false;
-        }
-        
-        // Try to get WASM reader, but don't throw if it fails
-        try {
-            await BrowserQRCodeReader.getWasmReader();
-            return true;
-        } catch (e) {
-            return false;
-        }
+    public static isWasmAvailable(): boolean {
+        BrowserQRCodeReader.autoDetectWasm();
+        const reader = BrowserQRCodeReader.getWasmReader();
+        return reader !== null;
     }
     
-    private static async getWasmReader() {
-        if (BrowserQRCodeReader.wasmLoadError) {
-            throw BrowserQRCodeReader.wasmLoadError;
+    private static getWasmReader(): { readBarcodes: any } | null {
+        // Strategy 1: Check if manually injected (highest priority)
+        if (BrowserQRCodeReader.wasmReaderModule) {
+            return BrowserQRCodeReader.wasmReaderModule;
         }
-        if (!BrowserQRCodeReader.wasmReaderPromise) {
-            // Lazy-load WASM module. Try multiple strategies in priority order:
-            // 1. Manual injection (highest priority - user explicitly provided)
-            // 2. npm dependency via dynamic import (ES modules; preferred for stability/offline builds)
-            // 3. npm dependency via require (CommonJS)
-            // 4. Global variable (from script tag or already-loaded CDN)
-            BrowserQRCodeReader.wasmReaderPromise = (async () => {
-                try {
-                    // Strategy 1: Check if manually injected (highest priority)
-                    if (BrowserQRCodeReader.wasmReaderModule) {
-                        return BrowserQRCodeReader.wasmReaderModule;
-                    }
-                    
-                    // Strategy 2: Try npm dependency via dynamic import (ES modules)
-                    // This works when zxing-wasm is installed via npm and available as a module
-                    // Preferred over CDN for stability, version control, and offline builds
-                    // Works in: ES module contexts, bundlers (webpack, vite, rollup with proper config)
-                    try {
-                        // Try standard import path first
-                        // @ts-ignore - dynamic import may not be in types, module structure varies
-                        const module: any = await import('zxing-wasm/reader');
-                        if (module && typeof module.readBarcodes === 'function') {
-                            return module;
-                        }
-                        // Handle default export if present
-                        if (module?.default && typeof module.default.readBarcodes === 'function') {
-                            return module.default;
-                        }
-                    } catch (e) {
-                        // Dynamic import failed, try alternative paths
-                        try {
-                            // Try alternative import path (some bundlers resolve differently)
-                            // @ts-ignore
-                            const module: any = await import('zxing-wasm');
-                            if (module && typeof module.readBarcodes === 'function') {
-                                return module;
-                            }
-                            // Handle default export if present
-                            if (module?.default && typeof module.default.readBarcodes === 'function') {
-                                return module.default;
-                            }
-                        } catch (e2) {
-                            // Both import paths failed, continue to next strategy
-                        }
-                    }
-                    
-                    // Strategy 3: Try npm dependency via require (Node.js/CommonJS)
-                    // This works in Node.js environments or bundlers that support require
-                    if (typeof require === 'function') {
-                        try {
-                            // Try standard require path
-                            // eslint-disable-next-line @typescript-eslint/no-var-requires
-                            const module: any = require('zxing-wasm/reader');
-                            if (module && typeof module.readBarcodes === 'function') {
-                                return module;
-                            }
-                            // Handle default export if present
-                            if (module?.default && typeof module.default.readBarcodes === 'function') {
-                                return module.default;
-                            }
-                        } catch (e) {
-                            // Try alternative require path
-                            try {
-                                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                                const module: any = require('zxing-wasm');
-                                if (module && typeof module.readBarcodes === 'function') {
-                                    return module;
-                                }
-                                // Handle default export if present
-                                if (module?.default && typeof module.default.readBarcodes === 'function') {
-                                    return module.default;
-                                }
-                            } catch (e2) {
-                                // Both require paths failed
-                            }
-                        }
-                    }
-                    
-                    // Strategy 4: Try global variable ZXingWASM (from script tag or CDN)
-                    // This is a fallback when npm dependency is not available
-                    if (typeof window !== 'undefined') {
-                        const globalZXingWASM = (window as any).ZXingWASM;
-                        if (globalZXingWASM) {
-                            // Check if readBarcodes is a function (not just truthy)
-                            if (typeof globalZXingWASM.readBarcodes === 'function') {
-                                return globalZXingWASM;
-                            }
-                            // Check default export
-                            if (globalZXingWASM.default) {
-                                if (typeof globalZXingWASM.default.readBarcodes === 'function') {
-                                    return globalZXingWASM.default;
-                                }
-                                if (typeof globalZXingWASM.default === 'function') {
-                                    return globalZXingWASM.default;
-                                }
-                            }
-                        }
-                        
-                        // Strategy 4b: Try zxingWasm (if manually set)
-                        const globalZxingWasm = (window as any).zxingWasm;
-                        if (globalZxingWasm) {
-                            // Check if readBarcodes is a function (not just truthy)
-                            if (typeof globalZxingWasm.readBarcodes === 'function') {
-                                return globalZxingWasm;
-                            }
-                            // Check default export
-                            if (globalZxingWasm.default) {
-                                if (typeof globalZxingWasm.default.readBarcodes === 'function') {
-                                    return globalZxingWasm.default;
-                                }
-                                if (typeof globalZxingWasm.default === 'function') {
-                                    return globalZxingWasm.default;
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Note: Removed Function-based dynamic import strategy due to CSP concerns
-                    // Users should load zxing-wasm via npm, script tag, or use injectWasmReader
-                    
-                    throw new Error(
-                        'zxing-wasm is not available. ' +
-                        'Recommended: Install via npm for stability and offline builds:\n' +
-                        '  npm install zxing-wasm\n' +
-                        'This will be auto-detected. Alternatively:\n' +
-                        `1. Load via script tag: <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@${BrowserQRCodeReader.ZXING_WASM_VERSION}/dist/iife/reader/index.js"></script>\n` +
-                        '2. Use BrowserQRCodeReader.injectWasmReader({ readBarcodes })'
-                    );
-                } catch (e) {
-                    BrowserQRCodeReader.wasmLoadError = e instanceof Error ? e : new Error(String(e));
-                    throw BrowserQRCodeReader.wasmLoadError;
-                }
-            })();
+        
+        // Strategy 2: Use imported npm package (bundled in UMD, or available in ES modules)
+        if (typeof readBarcodes === 'function') {
+            return { readBarcodes };
         }
-        return BrowserQRCodeReader.wasmReaderPromise;
+        
+        // Strategy 3: Try global variable (from script tag - fallback)
+        if (typeof window !== 'undefined') {
+            const globalZXingWASM = (window as any).ZXingWASM;
+            if (globalZXingWASM && typeof globalZXingWASM.readBarcodes === 'function') {
+                return globalZXingWASM;
+            }
+        }
+        
+        return null;
     }
 
     private readonly useWasm: boolean;
-    private _wasmAvailable: boolean | null = null; // Cache WASM availability
-    private _wasmCheckVersion: number = 0; // Version of WASM state when cache was set
-    
-    // Version counter for WASM state changes - increments when state changes
-    // Note: Resets to 0 when approaching Number.MAX_SAFE_INTEGER to prevent overflow
-    private static wasmStateVersion: number = 0;
-    
-    /**
-     * Invalidate WASM availability cache for all instances.
-     * Called when WASM state changes (e.g., after injectWasmReader or resetWasm).
-     */
-    private static invalidateInstanceCaches(): void {
-        BrowserQRCodeReader.wasmStateVersion++;
-        // Reset to 0 when approaching max safe integer to prevent overflow
-        // This is extremely unlikely in practice, but provides safety
-        if (BrowserQRCodeReader.wasmStateVersion >= Number.MAX_SAFE_INTEGER - 1000) {
-            BrowserQRCodeReader.wasmStateVersion = 0;
-        }
-    }
 
     /**
      * Creates an instance of BrowserQRCodeReader.
@@ -457,10 +155,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * - `timeBetweenScansMillis?: number` — time delay between subsequent decode tries (default: `500`).
      * - `useWasm?: boolean` — whether to prefer the WASM-based reader when available (default: `true`).
      * 
-     * Note: WASM auto-detection is triggered asynchronously on construction (fire-and-forget).
-     * The first call to `decodeAsync()` will wait for WASM detection to complete if needed.
-     * To ensure WASM is ready before first use, you can await `BrowserQRCodeReader.isWasmAvailable()`
-     * after construction.
+     * Note: WASM auto-detection is triggered on construction.
      * 
      * @param {number | { timeBetweenScansMillis?: number; useWasm?: boolean }} [timeBetweenScansMillisOrOptions=500]
      *        Either the time delay between subsequent decode tries, or an options object.
@@ -473,8 +168,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
 
         super(new QRCodeReader(), timeBetweenScansMillis);
 
-        // Auto-detect and load WASM on construction (async, won't block)
-        void BrowserQRCodeReader.autoDetectWasm();
+        // Auto-detect WASM on construction
+        BrowserQRCodeReader.autoDetectWasm();
         
         // If useWasm is explicitly set, use it. Otherwise, default to true (will try WASM first)
         this.useWasm =
@@ -486,39 +181,12 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     }
 
     public async decodeAsync(element: HTMLVisualMediaElement): Promise<Result> {
-        // Check WASM availability if not cached or if WASM state has changed
-        // Use a loop to handle version changes during async calls (prevents race conditions)
-        // Add max iteration limit to prevent infinite loops in edge cases
-        const MAX_VERSION_CHECK_ITERATIONS = 10;
-        let iterationCount = 0;
-        while (this._wasmAvailable === null || this._wasmCheckVersion !== BrowserQRCodeReader.wasmStateVersion) {
-            // Safety check: prevent infinite loops if version keeps changing
-            if (iterationCount >= MAX_VERSION_CHECK_ITERATIONS) {
-                // If version keeps changing rapidly, use the last known availability state
-                // If _wasmAvailable is still null, it will be set to false by the check below
-                // This prevents infinite loops while still allowing retries on next call
-                this._wasmCheckVersion = BrowserQRCodeReader.wasmStateVersion;
-                // If we still don't have availability, force a check (but only once more)
-                if (this._wasmAvailable === null) {
-                    this._wasmAvailable = await BrowserQRCodeReader.isWasmAvailable();
-                }
-                break;
-            }
-            iterationCount++;
-            
-            const versionBeforeCheck = BrowserQRCodeReader.wasmStateVersion;
-            this._wasmAvailable = await BrowserQRCodeReader.isWasmAvailable();
-            const versionAfterCheck = BrowserQRCodeReader.wasmStateVersion;
-            // If version didn't change during the async call, we're done
-            if (versionBeforeCheck === versionAfterCheck) {
-                this._wasmCheckVersion = versionAfterCheck;
-                break;
-            }
-            // Version changed during async call, loop will re-check with new version
-        }
+        // Check WASM availability
+        BrowserQRCodeReader.autoDetectWasm();
+        const wasmReader = BrowserQRCodeReader.getWasmReader();
         
         // If WASM is disabled or not available, use regular decode
-        if (!this.useWasm || !this._wasmAvailable) {
+        if (!this.useWasm || !wasmReader) {
             return super.decodeAsync(element);
         }
 
@@ -601,21 +269,17 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 throw new Error(`ImageData length mismatch: expected ${expectedLength}, got ${imageData.data.length}`);
             }
 
-            const wasmModule = await BrowserQRCodeReader.getWasmReader();
-            // Handle both direct export and default export formats
-            // Check if module itself is a function first, then check properties
-            let readBarcodes: any;
-            if (typeof wasmModule === 'function') {
-                readBarcodes = wasmModule;
-            } else if (wasmModule && typeof wasmModule.readBarcodes === 'function') {
-                readBarcodes = wasmModule.readBarcodes;
-            } else if (wasmModule?.default && typeof wasmModule.default.readBarcodes === 'function') {
-                readBarcodes = wasmModule.default.readBarcodes;
-            } else if (wasmModule?.default && typeof wasmModule.default === 'function') {
-                readBarcodes = wasmModule.default;
-            } else {
-                throw new Error('zxing-wasm readBarcodes function not found in module');
+            // Validate wasmReader is still available (defensive check)
+            if (!wasmReader) {
+                return super.decodeAsync(element);
             }
+
+            // Get readBarcodes function from the module
+            if (!wasmReader.readBarcodes) {
+                return super.decodeAsync(element);
+            }
+            
+            const readBarcodes = wasmReader.readBarcodes;
             
             // Defensive runtime check: validate readBarcodes is actually callable
             // This is technically redundant after the checks above, but provides an extra safety layer
@@ -646,6 +310,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             let results: any;
             try {
                 const readBarcodesResult = readBarcodes(imageData, options);
+                
                 // Handle both Promise and direct value returns
                 // Use robust Promise detection: check for .then method (works across realms and polyfills)
                 // This is more reliable than instanceof Promise which can fail with cross-realm Promises

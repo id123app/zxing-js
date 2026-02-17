@@ -65,7 +65,8 @@
     "tslint": "./node_modules/.bin/tslint \"./src/**/*.ts\""
   },
   "dependencies": {
-    "ts-custom-error": "^3.2.1"
+    "ts-custom-error": "^3.2.1",
+    "zxing-wasm": "^2.2.4"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^7.1.3",
@@ -106,8 +107,7 @@
     "yarn": "^1.17.3"
   },
   "optionalDependencies": {
-    "@zxing/text-encoding": "~0.9.0",
-    "zxing-wasm": "^2.2.4"
+    "@zxing/text-encoding": "~0.9.0"
   },
   "collective": {
     "type": "opencollective",
