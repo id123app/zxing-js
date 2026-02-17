@@ -1,16 +1,21 @@
 import path from 'path';
+import { createRequire } from 'module';
 import resolve from '@rollup/plugin-node-resolve';
 
-const zxingWasmReaderPath = path.resolve(process.cwd(), 'node_modules/zxing-wasm/dist/es/reader/index.js');
+// Use Node resolution to find package (works with Yarn PnP, pnpm, etc.)
+const require = createRequire(path.join(process.cwd(), 'package.json'));
+const cjsReaderPath = require.resolve('zxing-wasm/reader');
+const pkgRoot = path.dirname(path.dirname(path.dirname(path.dirname(cjsReaderPath)))); // .../dist/cjs/reader/index.js -> pkg root
+const zxingWasmReaderPath = path.join(pkgRoot, 'dist/es/reader/index.js');
 
 export default {
   input: 'dist/es2015/index.js',
   external: [
     '@zxing/text-encoding',
-    // Note: zxing-wasm is NOT external - it will be bundled so npm install works seamlessly
+    // zxing-wasm is bundled (not external) so UMD works without separate script loading
   ],
   plugins: [
-    // Explicitly resolve zxing-wasm/reader (older resolve may not support package exports)
+    // Explicitly resolve zxing-wasm/reader (older Rollup resolver may not support package exports)
     {
       resolveId(source) {
         if (source === 'zxing-wasm/reader') {

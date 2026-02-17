@@ -52,12 +52,11 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     private static wasmReaderModule: any = null; // Allow manual injection
     
     /**
-     * Reset all static WASM-related caches so that they can be garbage collected.
-     * This is useful for long-running or single-page applications that need to
-     * release memory after the reader is no longer in use.
-     * 
-     * Note: Existing instances will re-check WASM availability on their next
-     * decodeAsync() call after this method is called.
+     * Clears the manually injected WASM module (if any) so it can be garbage collected.
+     * Does not affect the statically imported or bundled zxing-wasm reader, which cannot be reset.
+     * Use this when you injected a module via injectWasmReader() and want to release it.
+     *
+     * Note: Existing instances will re-check WASM availability on their next decodeAsync() call.
      */
     public static resetWasm(): void {
         BrowserQRCodeReader.wasmReaderModule = null;
@@ -288,21 +287,16 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 throw new Error('zxing-wasm readBarcodes is not a function');
             }
             
-            // Build options - disable downscaling entirely to ensure full resolution scanning
-            // This matches the behavior of direct URL integration that successfully scanned 1500+ characters
-            // Downscaling was causing issues on Windows machines with lower camera resolutions
-            // 
-            // Performance note: Disabling downscaling may slightly impact performance for very small QR codes,
-            // but ensures accurate scanning of high-density codes. The trade-off is acceptable for the
-            // improved reliability and character capacity (1500+ vs 700 characters).
+            // Build options - downscaling is always disabled in the WASM path for all frame sizes.
+            // This ensures accurate scanning of high-density QR codes (1500+ characters), especially
+            // on Windows machines with lower camera resolutions. The zxing-wasm tryDownscale option
+            // is deprecated and not passed.
             const options: ZXingWasmReaderOptions = {
                 formats: ['QRCode'],
                 tryHarder: true,
                 tryRotate: true,
                 tryInvert: true,
                 maxNumberOfSymbols: 1,
-                // Note: Downscaling disabled to ensure high-density QR codes (1500+ characters) 
-                // can be scanned accurately, especially on Windows machines with lower camera resolutions
             };
             
             // Call readBarcodes - it may return a Promise or a value directly
@@ -360,12 +354,13 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
 
             return new Result(decodedText, null, 0, safePoints, BarcodeFormat.QR_CODE);
         } catch (e) {
-            // If WASM fails (module not loaded, API error, etc.), fall back to regular decode
-            // This ensures backward compatibility even if zxing-wasm isn't available
+            // If WASM fails with a "not found" result, propagate the NotFoundException.
+            // This matches the base behavior and avoids a second decode attempt on the same frame.
             if (e instanceof NotFoundException) {
-                throw e; // Re-throw NotFoundException - it's expected
+                throw e; // Re-throw NotFoundException - it's expected and does not trigger fallback
             }
             // For any other error (WASM load failure, API mismatch, etc.), fall back
+            // to the regular TypeScript-based decoder for backward compatibility.
             return super.decodeAsync(element);
         }
     }
