@@ -33,7 +33,6 @@ export default function (config) {
             require('karma-sinon'),
             require('karma-remap-coverage'),
             require('karma-typescript'),
-            require('karma-typescript-preprocessor'),
         ],
 
         client: {
