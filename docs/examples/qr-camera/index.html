@@ -11,6 +11,17 @@
   <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://fonts.googleapis.com/css?family=Roboto:300,300italic,700,700italic">
   <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://unpkg.com/normalize.css@8.0.0/normalize.css">
   <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://unpkg.com/milligram@1.3.0/dist/milligram.min.css">
+  <style>
+    .video-container { position: relative; display: inline-block; }
+    #video {
+      object-fit: fill;
+      max-width: 100%;
+    }
+    #qr-tracking-canvas {
+      position: absolute; top: 0; left: 0;
+      pointer-events: none; z-index: 10;
+    }
+  </style>
 </head>
 
 <body>
@@ -33,8 +44,9 @@
         <a class="button" id="resetButton">Reset</a>
       </div>
 
-      <div>
-        <video id="video" width="300" height="200" style="border: 1px solid gray"></video>
+      <div class="video-container">
+        <video id="video" width="300" height="200" style="border: 1px solid gray; display: block"></video>
+        <canvas id="qr-tracking-canvas"></canvas>
       </div>
 
       <div id="sourceSelectPanel" style="display:none">
@@ -47,8 +59,9 @@
         <label for="decoding-style"> Decoding Style:</label>
         <select id="decoding-style" size="1">
           <option value="once">Decode once</option>
-          <option value="continuously">Decode continuously</option>
+          <option value="continuously" selected>Decode continuously</option>
         </select>
+        <small style="display:block;color:#666;margin-top:4px">Focus overlay always follows; "once" only updates result text on first decode.</small>
       </div>
 
       <label>Result:</label>
@@ -67,46 +80,78 @@
 
   </main>
 
-  <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest"></script>
+  <script type="text/javascript" src="../../../dist/umd/index.min.js"></script>
   <script type="text/javascript">
-    function decodeOnce(codeReader, selectedDeviceId) {
-      codeReader.decodeFromInputVideoDevice(selectedDeviceId, 'video').then((result) => {
-        console.log(result)
-        document.getElementById('result').textContent = result.text
-      }).catch((err) => {
-        console.error(err)
-        document.getElementById('result').textContent = err
-      })
+    function drawQRBoundary(result) {
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('qr-tracking-canvas');
+      const ctx = canvas && canvas.getContext('2d');
+      if (!video || !ctx) return;
+
+      var rect = video.getBoundingClientRect();
+      var displayWidth = rect.width;
+      var displayHeight = rect.height;
+      var resolutionWidth = video.videoWidth;
+      var resolutionHeight = video.videoHeight;
+
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!result || !result.getResultPoints || result.getResultPoints().length < 4) return;
+
+      const points = result.getResultPoints();
+      if (!resolutionWidth || !resolutionHeight) return;
+
+      var scaleX = displayWidth / resolutionWidth;
+      var scaleY = displayHeight / resolutionHeight;
+
+      var adjustedPoints = points.map(function (p) {
+        return {
+          x: p.getX() * scaleX,
+          y: p.getY() * scaleY
+        };
+      });
+
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(adjustedPoints[0].x, adjustedPoints[0].y);
+      for (var i = 1; i < adjustedPoints.length; i++) {
+        ctx.lineTo(adjustedPoints[i].x, adjustedPoints[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
     }
 
-    function decodeContinuously(codeReader, selectedDeviceId) {
+    function clearQRBoundary() {
+      var canvas = document.getElementById('qr-tracking-canvas');
+      var ctx = canvas && canvas.getContext('2d');
+      if (canvas && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function startDecoding(codeReader, selectedDeviceId) {
+      clearQRBoundary()
+      var decodingStyle = document.getElementById('decoding-style').value
+      var resultUpdated = false
+
       codeReader.decodeFromInputVideoDeviceContinuously(selectedDeviceId, 'video', (result, err) => {
         if (result) {
-          // properly decoded qr code
-          console.log('Found QR code!', result)
-          document.getElementById('result').textContent = result.text
+          drawQRBoundary(result)
+          if (decodingStyle === 'continuously' || !resultUpdated) {
+            document.getElementById('result').textContent = result.text
+            resultUpdated = true
+          }
         }
 
         if (err) {
-          // As long as this error belongs into one of the following categories
-          // the code reader is going to continue as excepted. Any other error
-          // will stop the decoding loop.
-          //
-          // Excepted Exceptions:
-          //
-          //  - NotFoundException
-          //  - ChecksumException
-          //  - FormatException
-
           if (err instanceof ZXing.NotFoundException) {
-            console.log('No QR code found.')
-          }
-
-          if (err instanceof ZXing.ChecksumException) {
+            clearQRBoundary()
+          } else if (err instanceof ZXing.ChecksumException) {
             console.log('A code was found, but it\'s read value was not valid.')
-          }
-
-          if (err instanceof ZXing.FormatException) {
+          } else if (err instanceof ZXing.FormatException) {
             console.log('A code was found, but it was in a invalid format.')
           }
         }
@@ -115,7 +160,7 @@
 
     window.addEventListener('load', function () {
       let selectedDeviceId;
-      const codeReader = new ZXing.BrowserQRCodeReader()
+      const codeReader = new ZXing.BrowserQRCodeReader({ timeBetweenScansMillis: 30 })
       console.log('ZXing code reader initialized')
 
       codeReader.getVideoInputDevices()
@@ -139,21 +184,14 @@
           }
 
           document.getElementById('startButton').addEventListener('click', () => {
-
-            const decodingStyle = document.getElementById('decoding-style').value;
-
-            if (decodingStyle == "once") {
-              decodeOnce(codeReader, selectedDeviceId);
-            } else {
-              decodeContinuously(codeReader, selectedDeviceId);
-            }
-
+            startDecoding(codeReader, selectedDeviceId)
             console.log(`Started decode from camera with id ${selectedDeviceId}`)
           })
 
           document.getElementById('resetButton').addEventListener('click', () => {
             codeReader.reset()
             document.getElementById('result').textContent = '';
+            clearQRBoundary()
             console.log('Reset.')
           })
 
