@@ -187,7 +187,7 @@ export class BrowserCodeReader {
       // Provide more helpful error message explaining why enumerateDevices is not available
       let reason = 'method not supported';
       if (!this.isMediaDevicesSuported) {
-        reason = 'navigator.mediaDevices is not available. This may be due to: (1) Not running on HTTPS/localhost (MediaDevices API requires secure context), (2) Browser does not support MediaDevices API, or (3) Missing required permissions.';
+        reason = 'navigator.mediaDevices is not supported. This may be due to: (1) Not running on HTTPS/localhost (MediaDevices API requires secure context), (2) Browser does not support MediaDevices API, or (3) Missing required permissions.';
       } else if (!navigator.mediaDevices.enumerateDevices) {
         reason = 'navigator.mediaDevices.enumerateDevices is not available. This may be due to: (1) Browser does not support enumerateDevices, (2) Missing required permissions, or (3) Running in an unsupported environment.';
       }

@@ -10,7 +10,9 @@ import ResultPoint from '../core/ResultPoint';
 import { readBarcodes } from 'zxing-wasm/reader';
 
 /**
- * Options for zxing-wasm readBarcodes function
+ * Options for zxing-wasm readBarcodes function.
+ * @see https://github.com/Sec-ant/zxing-wasm - API may change between versions.
+ * @version Based on zxing-wasm@2.2.4
  */
 interface ZXingWasmReaderOptions {
     formats?: string[];
@@ -28,7 +30,9 @@ interface ZXingWasmReaderOptions {
 }
 
 /**
- * Result from zxing-wasm readBarcodes function
+ * Result from zxing-wasm readBarcodes function.
+ * @see https://github.com/Sec-ant/zxing-wasm - API may change between versions.
+ * @version Based on zxing-wasm@2.2.4
  */
 interface ZXingWasmResult {
     isValid: boolean;
@@ -48,8 +52,14 @@ interface ZXingWasmResult {
  *
  * QR Code reader to use from browser.
  */
+/** Module shape expected from zxing-wasm/reader (readBarcodes may return sync or async) */
+interface WasmReaderModule {
+    readBarcodes: (imageData: ImageData, options?: ZXingWasmReaderOptions) =>
+        ZXingWasmResult[] | Promise<ZXingWasmResult[]>;
+}
+
 export class BrowserQRCodeReader extends BrowserCodeReader {
-    private static wasmReaderModule: any = null; // Allow manual injection
+    private static wasmReaderModule: WasmReaderModule | null = null;
     
     /**
      * Clears the manually injected WASM module (if any) so it can be garbage collected.
@@ -78,7 +88,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * import { readBarcodes } from 'zxing-wasm/reader'; // npm install zxing-wasm
      * BrowserQRCodeReader.injectWasmReader({ readBarcodes });
      */
-    public static injectWasmReader(module: { readBarcodes: any }): void {
+    public static injectWasmReader(module: WasmReaderModule): void {
         if (!module) {
             throw new Error('injectWasmReader: module parameter is required');
         }
@@ -92,6 +102,9 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
      * Auto-detect and inject WASM if available from global variables.
      */
     private static autoDetectWasm(): void {
+        if (BrowserQRCodeReader.wasmReaderModule) {
+            return; // Already injected, skip to avoid redundant work
+        }
         // Check for ZXingWASM global (from script tag)
         if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
             const globalZXingWASM = (window as any).ZXingWASM;
@@ -116,7 +129,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         return reader !== null;
     }
     
-    private static getWasmReader(): { readBarcodes: any } | null {
+    private static getWasmReader(): WasmReaderModule | null {
         // Strategy 1: Check if manually injected (highest priority)
         if (BrowserQRCodeReader.wasmReaderModule) {
             return BrowserQRCodeReader.wasmReaderModule;
