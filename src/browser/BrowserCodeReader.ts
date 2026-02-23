@@ -52,6 +52,16 @@ export class BrowserCodeReader {
   private _stopAsyncDecode = false;
 
   /**
+   * Async decode hook.
+   *
+   * Default implementation wraps the synchronous `decode()` call.
+   * Subclasses (e.g. WASM-backed readers) can override this to perform an async decode.
+   */
+  public async decodeAsync(element: HTMLVisualMediaElement): Promise<Result> {
+    return this.decode(element);
+  }
+
+  /**
    * Delay time between decode attempts made by the scanner.
    */
   protected _timeBetweenDecodingAttempts: number = 0;
@@ -147,6 +157,26 @@ export class BrowserCodeReader {
 
   /**
    * Lists all the available video input devices.
+   * 
+   * @throws {Error} If navigator is not present or MediaDevices API is not available.
+   * 
+   * @remarks
+   * This method requires:
+   * - A secure context (HTTPS or localhost)
+   * - Browser support for MediaDevices API
+   * - Proper permissions (may require user interaction first)
+   * 
+   * Before calling this method, check availability using:
+   * ```typescript
+   * if (reader.canEnumerateDevices) {
+   *   const devices = await reader.listVideoInputDevices();
+   * } else {
+   *   // Handle gracefully - API not available
+   *   console.warn('Device enumeration not supported in this environment');
+   * }
+   * ```
+   * 
+   * @returns {Promise<MediaDeviceInfo[]>} Array of available video input devices
    */
   public async listVideoInputDevices(): Promise<MediaDeviceInfo[]> {
     if (!this.hasNavigator) {
@@ -154,7 +184,14 @@ export class BrowserCodeReader {
     }
 
     if (!this.canEnumerateDevices) {
-      throw new Error("Can't enumerate devices, method not supported.");
+      // Provide more helpful error message explaining why enumerateDevices is not available
+      let reason = 'method not supported';
+      if (!this.isMediaDevicesSuported) {
+        reason = 'navigator.mediaDevices is not supported. This may be due to: (1) Not running on HTTPS/localhost (MediaDevices API requires secure context), (2) Browser does not support MediaDevices API, or (3) Missing required permissions.';
+      } else if (!navigator.mediaDevices.enumerateDevices) {
+        reason = 'navigator.mediaDevices.enumerateDevices is not available. This may be due to: (1) Browser does not support enumerateDevices, (2) Missing required permissions, or (3) Running in an unsupported environment.';
+      }
+      throw new Error(`Can't enumerate devices, ${reason}`);
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -838,7 +875,7 @@ export class BrowserCodeReader {
   ): Promise<Result> {
     this._stopAsyncDecode = false;
 
-    const loop = (
+    const loop = async (
       resolve: (value?: Result | PromiseLike<Result>) => void,
       reject: (reason?: any) => void
     ) => {
@@ -853,7 +890,7 @@ export class BrowserCodeReader {
       }
 
       try {
-        const result = this.decode(element);
+        const result = await this.decodeAsync(element);
         resolve(result);
       } catch (e) {
         const ifNotFound = retryIfNotFound && e instanceof NotFoundException;
@@ -865,10 +902,8 @@ export class BrowserCodeReader {
         if (ifNotFound || ifChecksumOrFormat) {
           // trying again
           return setTimeout(
-            loop,
+            () => void loop(resolve, reject),
             this._timeBetweenDecodingAttempts,
-            resolve,
-            reject
           );
         }
 
@@ -876,7 +911,9 @@ export class BrowserCodeReader {
       }
     };
 
-    return new Promise((resolve, reject) => loop(resolve, reject));
+    return new Promise((resolve, reject) => {
+      void loop(resolve, reject);
+    });
   }
 
   /**
@@ -888,14 +925,14 @@ export class BrowserCodeReader {
   ): void {
     this._stopContinuousDecode = false;
 
-    const loop = () => {
+    const loop = async () => {
       if (this._stopContinuousDecode) {
         this._stopContinuousDecode = undefined;
         return;
       }
 
       try {
-        const result = this.decode(element);
+        const result = await this.decodeAsync(element);
         callbackFn(result, null);
         setTimeout(loop, this.timeBetweenScansMillis);
       } catch (e) {
@@ -912,7 +949,7 @@ export class BrowserCodeReader {
       }
     };
 
-    loop();
+    void loop();
   }
 
   /**
