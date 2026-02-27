@@ -1,12 +1,93 @@
 import { BrowserCodeReader } from './BrowserCodeReader';
+import { HTMLVisualMediaElement } from './HTMLVisualMediaElement';
 import MultiFormatReader from '../core/MultiFormatReader';
 import BinaryBitmap from '../core/BinaryBitmap';
-import Result from '../core/Result';
+import BarcodeFormat from '../core/BarcodeFormat';
 import DecodeHintType from '../core/DecodeHintType';
+import NotFoundException from '../core/NotFoundException';
+import Result from '../core/Result';
+import ResultPoint from '../core/ResultPoint';
+
+// Import zxing-wasm - will be bundled in UMD builds
+import { readBarcodes } from 'zxing-wasm/reader';
+
+/** Options for zxing-wasm readBarcodes function. */
+interface ZXingWasmReaderOptions {
+    formats?: string[];
+    tryHarder?: boolean;
+    tryRotate?: boolean;
+    tryInvert?: boolean;
+    tryDownscale?: boolean;
+    maxNumberOfSymbols?: number;
+}
+
+/** Result from zxing-wasm readBarcodes function. */
+interface ZXingWasmResult {
+    isValid: boolean;
+    error?: string;
+    text: string;
+    format: string;
+    position?: {
+        topLeft: { x: number; y: number };
+        topRight: { x: number; y: number };
+        bottomRight: { x: number; y: number };
+        bottomLeft: { x: number; y: number };
+    };
+}
+
+/** Mapping from zxing-wasm format strings to BarcodeFormat enum values */
+const WASM_FORMAT_TO_BARCODE_FORMAT: Record<string, BarcodeFormat> = {
+    'Aztec': BarcodeFormat.AZTEC,
+    'Codabar': BarcodeFormat.CODABAR,
+    'Code39': BarcodeFormat.CODE_39,
+    'Code93': BarcodeFormat.CODE_93,
+    'Code128': BarcodeFormat.CODE_128,
+    'DataBar': BarcodeFormat.RSS_14,
+    'DataBarExpanded': BarcodeFormat.RSS_EXPANDED,
+    'DataMatrix': BarcodeFormat.DATA_MATRIX,
+    'EAN-8': BarcodeFormat.EAN_8,
+    'EAN-13': BarcodeFormat.EAN_13,
+    'ITF': BarcodeFormat.ITF,
+    'PDF417': BarcodeFormat.PDF_417,
+    'QRCode': BarcodeFormat.QR_CODE,
+    'UPC-A': BarcodeFormat.UPC_A,
+    'UPC-E': BarcodeFormat.UPC_E,
+};
+
+/** Mapping from BarcodeFormat enum to zxing-wasm format strings */
+const BARCODE_FORMAT_TO_WASM: Record<number, string> = {
+    [BarcodeFormat.AZTEC]: 'Aztec',
+    [BarcodeFormat.CODABAR]: 'Codabar',
+    [BarcodeFormat.CODE_39]: 'Code39',
+    [BarcodeFormat.CODE_93]: 'Code93',
+    [BarcodeFormat.CODE_128]: 'Code128',
+    [BarcodeFormat.RSS_14]: 'DataBar',
+    [BarcodeFormat.RSS_EXPANDED]: 'DataBarExpanded',
+    [BarcodeFormat.DATA_MATRIX]: 'DataMatrix',
+    [BarcodeFormat.EAN_8]: 'EAN-8',
+    [BarcodeFormat.EAN_13]: 'EAN-13',
+    [BarcodeFormat.ITF]: 'ITF',
+    [BarcodeFormat.PDF_417]: 'PDF417',
+    [BarcodeFormat.QR_CODE]: 'QRCode',
+    [BarcodeFormat.UPC_A]: 'UPC-A',
+    [BarcodeFormat.UPC_E]: 'UPC-E',
+};
+
+/**
+ * Max pixel dimension for WASM processing. Frames larger than this are
+ * downscaled before passing to readBarcodes, dramatically improving
+ * frame rate (and thus detection reliability) for live camera feeds.
+ * 640px is sufficient for all common barcode types from camera.
+ */
+const WASM_MAX_DIMENSION = 640;
 
 export class BrowserMultiFormatReader extends BrowserCodeReader {
 
   protected readonly reader: MultiFormatReader;
+
+  /** Cached downscale canvas for WASM processing */
+  private _wasmCanvas: HTMLCanvasElement | null = null;
+  private _wasmCtx: CanvasRenderingContext2D | null = null;
 
   set hints(hints: Map<DecodeHintType, any>) {
     this._hints = hints || null;
@@ -35,5 +116,175 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       // Readers need to be reset before being reused on another bitmap.
       this.reader.reset();
     }
+  }
+
+  /**
+   * Get the zxing-wasm format strings based on POSSIBLE_FORMATS hint.
+   * Returns undefined to scan all formats when no specific formats are set.
+   */
+  private getWasmFormats(): string[] | undefined {
+    const hints = this._hints;
+    if (!hints) return undefined;
+
+    const possibleFormats = hints.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[];
+    if (!possibleFormats || possibleFormats.length === 0) return undefined;
+
+    const wasmFormats: string[] = [];
+    for (const format of possibleFormats) {
+      const wf = BARCODE_FORMAT_TO_WASM[format];
+      if (wf) wasmFormats.push(wf);
+    }
+
+    return wasmFormats.length > 0 ? wasmFormats : undefined;
+  }
+
+  /**
+   * Get or create a downscaled canvas for WASM processing.
+   * Reuses the canvas if dimensions haven't changed.
+   */
+  private getWasmCanvas(srcWidth: number, srcHeight: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; scale: number } {
+    const maxDim = Math.max(srcWidth, srcHeight);
+    const scale = maxDim > WASM_MAX_DIMENSION ? WASM_MAX_DIMENSION / maxDim : 1;
+    const dstWidth = Math.round(srcWidth * scale);
+    const dstHeight = Math.round(srcHeight * scale);
+
+    if (!this._wasmCanvas || this._wasmCanvas.width !== dstWidth || this._wasmCanvas.height !== dstHeight) {
+      if (typeof document === 'undefined') return null;
+      this._wasmCanvas = document.createElement('canvas');
+      this._wasmCanvas.width = dstWidth;
+      this._wasmCanvas.height = dstHeight;
+      try {
+        this._wasmCtx = this._wasmCanvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+      } catch {
+        this._wasmCtx = this._wasmCanvas.getContext('2d');
+      }
+    }
+
+    return { canvas: this._wasmCanvas, ctx: this._wasmCtx, scale };
+  }
+
+  /**
+   * WASM-backed async decode. Uses zxing-wasm readBarcodes for fast multi-format
+   * barcode detection. Pre-downscales large frames for faster processing.
+   * Falls back to the pure TypeScript decoder if WASM is unavailable.
+   */
+  public async decodeAsync(element: HTMLVisualMediaElement): Promise<Result> {
+    if (typeof readBarcodes !== 'function') {
+      return super.decodeAsync(element);
+    }
+
+    try {
+      // Get source dimensions
+      let srcWidth: number;
+      let srcHeight: number;
+
+      if (element instanceof HTMLVideoElement) {
+        if (element.readyState < 2) {
+          throw new Error(`Video not ready (readyState: ${element.readyState})`);
+        }
+        srcWidth = element.videoWidth;
+        srcHeight = element.videoHeight;
+        if (!srcWidth || !srcHeight) {
+          throw new Error(`Invalid video dimensions: ${srcWidth}x${srcHeight}`);
+        }
+      } else if (element instanceof HTMLImageElement) {
+        if (!element.complete) {
+          throw new Error('Image not loaded');
+        }
+        srcWidth = element.naturalWidth || element.width;
+        srcHeight = element.naturalHeight || element.height;
+        if (!srcWidth || !srcHeight) {
+          throw new Error(`Invalid image dimensions`);
+        }
+      } else {
+        throw new Error('Unsupported element type');
+      }
+
+      // Get downscaled canvas for WASM processing
+      const wasm = this.getWasmCanvas(srcWidth, srcHeight);
+      if (!wasm || !wasm.ctx) {
+        throw new Error('Failed to create WASM canvas');
+      }
+
+      const { canvas, ctx, scale } = wasm;
+
+      // Draw element scaled down onto the WASM canvas
+      ctx.drawImage(element as any, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (!imageData || !imageData.data) {
+        throw new Error('Failed to get image data');
+      }
+
+      const wasmFormats = this.getWasmFormats();
+
+      const options: ZXingWasmReaderOptions = {
+        formats: wasmFormats ?? ['Linear-Codes', 'Matrix-Codes'],
+        tryHarder: true,
+        tryRotate: false,
+        tryInvert: false,
+        tryDownscale: true,
+        maxNumberOfSymbols: 1,
+      };
+
+      const readBarcodesResult = readBarcodes(imageData, options as any);
+      const isPromise = readBarcodesResult != null &&
+                        typeof readBarcodesResult === 'object' &&
+                        typeof (readBarcodesResult as any).then === 'function';
+      const results: any = isPromise ? await readBarcodesResult : readBarcodesResult;
+
+      if (!results) throw new NotFoundException();
+
+      const resultsArray = Array.isArray(results) ? results : [results];
+      if (resultsArray.length === 0) throw new NotFoundException();
+
+      const first = resultsArray[0] as ZXingWasmResult;
+      if (!first || !first.isValid) throw new NotFoundException();
+      if (first.text === null || first.text === undefined || typeof first.text !== 'string') {
+        throw new NotFoundException();
+      }
+
+      const barcodeFormat = WASM_FORMAT_TO_BARCODE_FORMAT[first.format] ?? BarcodeFormat.QR_CODE;
+
+      // Extract points and scale back to original video resolution
+      const points = BrowserMultiFormatReader.extractResultPoints(first, scale);
+
+      return new Result(first.text, null, 0, points ?? [], barcodeFormat);
+    } catch (e) {
+      if (e instanceof NotFoundException) throw e;
+      // For any other error, fall back to pure TypeScript decoder
+      return super.decodeAsync(element);
+    }
+  }
+
+  /**
+   * Extract ResultPoint array from WASM result, scaling coordinates back
+   * to the original video resolution.
+   */
+  private static extractResultPoints(result: ZXingWasmResult, scale: number): ResultPoint[] | null {
+    if (!result.position) return null;
+
+    const { topLeft, topRight, bottomRight, bottomLeft } = result.position;
+
+    if (!topLeft || !topRight || !bottomRight || !bottomLeft ||
+        typeof topLeft.x !== 'number' || !Number.isFinite(topLeft.x) ||
+        typeof topLeft.y !== 'number' || !Number.isFinite(topLeft.y) ||
+        typeof topRight.x !== 'number' || !Number.isFinite(topRight.x) ||
+        typeof topRight.y !== 'number' || !Number.isFinite(topRight.y) ||
+        typeof bottomRight.x !== 'number' || !Number.isFinite(bottomRight.x) ||
+        typeof bottomRight.y !== 'number' || !Number.isFinite(bottomRight.y) ||
+        typeof bottomLeft.x !== 'number' || !Number.isFinite(bottomLeft.x) ||
+        typeof bottomLeft.y !== 'number' || !Number.isFinite(bottomLeft.y)) {
+      return null;
+    }
+
+    // Scale points back from downscaled coordinates to original video resolution
+    const invScale = 1 / scale;
+    return [
+      new ResultPoint(topLeft.x * invScale, topLeft.y * invScale),
+      new ResultPoint(topRight.x * invScale, topRight.y * invScale),
+      new ResultPoint(bottomRight.x * invScale, bottomRight.y * invScale),
+      new ResultPoint(bottomLeft.x * invScale, bottomLeft.y * invScale),
+    ];
   }
 }
