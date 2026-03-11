@@ -7,7 +7,7 @@ import {
   SymbolShapeHint,
 } from './constants';
 
-import HighLevelEncoder from './HighLevelEncoder';
+import { EncoderUtils } from './EncoderUtils';
 import { MinimalECIInput } from '../../common/MinimalECIInput';
 import Integer from '../../util/Integer';
 
@@ -170,8 +170,8 @@ export class MinimalEncoder {
       }
       const ci = input.charAt(i);
       if (
-        (c40 && HighLevelEncoder.isNativeC40(ci)) ||
-        (!c40 && HighLevelEncoder.isNativeText(ci))
+        (c40 && EncoderUtils.isNativeC40(ci)) ||
+        (!c40 && EncoderUtils.isNativeText(ci))
       ) {
         thirdsCount++; // native
       } else if (
@@ -182,8 +182,8 @@ export class MinimalEncoder {
         const asciiValue = ci & 0xff;
         if (
           asciiValue >= 128 &&
-          ((c40 && HighLevelEncoder.isNativeC40(asciiValue - 128)) ||
-            (!c40 && HighLevelEncoder.isNativeText(asciiValue - 128)))
+          ((c40 && EncoderUtils.isNativeC40(asciiValue - 128)) ||
+            (!c40 && EncoderUtils.isNativeText(asciiValue - 128)))
         ) {
           thirdsCount += 3; // shift, Upper shift
         } else {
@@ -219,9 +219,9 @@ export class MinimalEncoder {
       // not possible to unlatch a full EDF edge to something
       // else
       if (
-        HighLevelEncoder.isDigit(ch) &&
+        EncoderUtils.isDigit(ch) &&
         input.haveNCharacters(from, 2) &&
-        HighLevelEncoder.isDigit(input.charAt(from + 1))
+        EncoderUtils.isDigit(input.charAt(from + 1))
       ) {
         // two digits ASCII encoded
         this.addEdge(edges, new Edge(input, Mode.ASCII, from, 2, previous));
@@ -250,9 +250,9 @@ export class MinimalEncoder {
 
       if (
         input.haveNCharacters(from, 3) &&
-        HighLevelEncoder.isNativeX12(input.charAt(from)) &&
-        HighLevelEncoder.isNativeX12(input.charAt(from + 1)) &&
-        HighLevelEncoder.isNativeX12(input.charAt(from + 2))
+        EncoderUtils.isNativeX12(input.charAt(from)) &&
+        EncoderUtils.isNativeX12(input.charAt(from + 1)) &&
+        EncoderUtils.isNativeX12(input.charAt(from + 2))
       ) {
         this.addEdge(edges, new Edge(input, Mode.X12, from, 3, previous));
       }
@@ -267,7 +267,7 @@ export class MinimalEncoder {
       const pos = from + i;
       if (
         input.haveNCharacters(pos, 1) &&
-        HighLevelEncoder.isNativeEDIFACT(input.charAt(pos))
+        EncoderUtils.isNativeEDIFACT(input.charAt(pos))
       ) {
         this.addEdge(edges, new Edge(input, Mode.EDF, from, i + 1, previous));
       } else {
@@ -277,7 +277,7 @@ export class MinimalEncoder {
     if (
       i === 3 &&
       input.haveNCharacters(from, 4) &&
-      HighLevelEncoder.isNativeEDIFACT(input.charAt(from + 3))
+      EncoderUtils.isNativeEDIFACT(input.charAt(from + 3))
     ) {
       this.addEdge(edges, new Edge(input, Mode.EDF, from, 4, previous));
     }
@@ -843,8 +843,8 @@ class Edge {
         return 0;
       }
       if (
-        HighLevelEncoder.isDigit(this.input.charAt(from)) &&
-        HighLevelEncoder.isDigit(this.input.charAt(from + 1))
+        EncoderUtils.isDigit(this.input.charAt(from)) &&
+        EncoderUtils.isDigit(this.input.charAt(from + 1))
       ) {
         return 1;
       }
@@ -852,8 +852,8 @@ class Edge {
     }
     if (length - from === 3) {
       if (
-        HighLevelEncoder.isDigit(this.input.charAt(from)) &&
-        HighLevelEncoder.isDigit(this.input.charAt(from + 1)) &&
+        EncoderUtils.isDigit(this.input.charAt(from)) &&
+        EncoderUtils.isDigit(this.input.charAt(from + 1)) &&
         !MinimalEncoder.isExtendedASCII(
           this.input.charAt(from + 2),
           this.input.getFNC1Character()
@@ -862,8 +862,8 @@ class Edge {
         return 2;
       }
       if (
-        HighLevelEncoder.isDigit(this.input.charAt(from + 1)) &&
-        HighLevelEncoder.isDigit(this.input.charAt(from + 2)) &&
+        EncoderUtils.isDigit(this.input.charAt(from + 1)) &&
+        EncoderUtils.isDigit(this.input.charAt(from + 2)) &&
         !MinimalEncoder.isExtendedASCII(
           this.input.charAt(from),
           this.input.getFNC1Character()
@@ -874,10 +874,10 @@ class Edge {
       return 0;
     }
     if (
-      HighLevelEncoder.isDigit(this.input.charAt(from)) &&
-      HighLevelEncoder.isDigit(this.input.charAt(from + 1)) &&
-      HighLevelEncoder.isDigit(this.input.charAt(from + 2)) &&
-      HighLevelEncoder.isDigit(this.input.charAt(from + 3))
+      EncoderUtils.isDigit(this.input.charAt(from)) &&
+      EncoderUtils.isDigit(this.input.charAt(from + 1)) &&
+      EncoderUtils.isDigit(this.input.charAt(from + 2)) &&
+      EncoderUtils.isDigit(this.input.charAt(from + 3))
     ) {
       return 2;
     }
@@ -1044,8 +1044,8 @@ class Edge {
     for (let i = 0; i < this.characterLength; i++) {
       const ci = this.input.charAt(this.fromPosition + i);
       if (
-        (c40 && HighLevelEncoder.isNativeC40(ci)) ||
-        (!c40 && HighLevelEncoder.isNativeText(ci))
+        (c40 && EncoderUtils.isNativeC40(ci)) ||
+        (!c40 && EncoderUtils.isNativeText(ci))
       ) {
         c40Values.push(this.getC40Value(c40, 0, ci, fnc1));
       } else if (!MinimalEncoder.isExtendedASCII(ci, fnc1)) {
@@ -1055,8 +1055,8 @@ class Edge {
       } else {
         const asciiValue = (ci & 0xff) - 128;
         if (
-          (c40 && HighLevelEncoder.isNativeC40(asciiValue)) ||
-          (!c40 && HighLevelEncoder.isNativeText(asciiValue))
+          (c40 && EncoderUtils.isNativeC40(asciiValue)) ||
+          (!c40 && EncoderUtils.isNativeText(asciiValue))
         ) {
           c40Values.push(1); // Shift 2
           c40Values.push(30); // Upper Shift

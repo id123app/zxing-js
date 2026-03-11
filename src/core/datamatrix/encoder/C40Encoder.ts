@@ -2,7 +2,7 @@ import StringBuilder from '../../util/StringBuilder';
 import { char } from '../../../customTypings';
 import { Encoder } from './Encoder';
 import { EncoderContext } from './EncoderContext';
-import HighLevelEncoder from './HighLevelEncoder';
+import { EncoderUtils } from './EncoderUtils';
 import {
   C40_ENCODATION,
   LATCH_TO_C40,
@@ -97,7 +97,7 @@ export class C40Encoder implements Encoder {
 
       const count = buffer.length();
       if (count % 3 === 0) {
-        const newMode = HighLevelEncoder.lookAheadTest(
+        const newMode = EncoderUtils.lookAheadTest(
           context.getMessage(),
           context.pos,
           this.getEncodingMode()

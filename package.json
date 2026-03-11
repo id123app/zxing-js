@@ -65,6 +65,7 @@
     "eslint": "./node_modules/.bin/eslint"
   },
   "dependencies": {
+    "@types/emscripten": "^1.39.6",
     "ts-custom-error": "^3.2.1",
     "zxing-wasm": "^2.2.4"
   },

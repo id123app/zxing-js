@@ -3,7 +3,7 @@ import StringBuilder from '../../util/StringBuilder';
 import { EDIFACT_ENCODATION, ASCII_ENCODATION } from './constants';
 import { Encoder } from './Encoder';
 import { EncoderContext } from './EncoderContext';
-import HighLevelEncoder from './HighLevelEncoder';
+import { EncoderUtils } from './EncoderUtils';
 
 export class EdifactEncoder implements Encoder {
   public getEncodingMode() {
@@ -31,7 +31,7 @@ export class EdifactEncoder implements Encoder {
         //  buffer.deleteCharAt(i);
         // }
 
-        const newMode = HighLevelEncoder.lookAheadTest(
+        const newMode = EncoderUtils.lookAheadTest(
           context.getMessage(),
           context.pos,
           this.getEncodingMode()
@@ -115,7 +115,7 @@ export class EdifactEncoder implements Encoder {
     } else if (c >= '@'.charCodeAt(0) && c <= '^'.charCodeAt(0)) {
       sb.append(StringUtils.getCharAt(c - 64));
     } else {
-      HighLevelEncoder.illegalCharacter(StringUtils.getCharAt(c));
+      EncoderUtils.illegalCharacter(StringUtils.getCharAt(c));
     }
   }
 
