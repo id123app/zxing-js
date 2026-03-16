@@ -9,7 +9,18 @@ import Result from '../core/Result';
 import ResultPoint from '../core/ResultPoint';
 
 // Import zxing-wasm - will be bundled in UMD builds
-import { readBarcodes } from 'zxing-wasm/reader';
+import { readBarcodes, prepareZXingModule } from 'zxing-wasm/reader';
+
+// Override the default locateFile to prevent external CDN calls (fastly.jsdelivr.net).
+// The WASM binary is resolved relative to the current script/page, so the consumer
+// must serve the zxing_reader.wasm file alongside their application assets.
+prepareZXingModule({
+  overrides: {
+    locateFile: (path: string, prefix: string) => {
+      return prefix + path;
+    },
+  },
+});
 
 /** Options for zxing-wasm readBarcodes function. */
 interface ZXingWasmReaderOptions {
