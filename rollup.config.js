@@ -1,13 +1,30 @@
 import path from 'path';
+import fs from 'fs';
 import { createRequire } from 'module';
 import resolve from '@rollup/plugin-node-resolve';
 
-// Use Node resolution to find package (works with Yarn PnP, pnpm, etc.)
-// Note: zxing-wasm exports don't expose package.json, so we derive pkg root from the CJS reader path.
-// Structure: node_modules/zxing-wasm/dist/cjs/reader/index.js -> 4 dirnames to reach pkg root.
+// Resolve zxing-wasm package root robustly by walking up from the resolved
+// entry until we find the directory containing its package.json.
+// This avoids brittle hard-coded directory depth assumptions.
 const require = createRequire(path.join(process.cwd(), 'package.json'));
 const cjsReaderPath = require.resolve('zxing-wasm/reader');
-const pkgRoot = path.dirname(path.dirname(path.dirname(path.dirname(cjsReaderPath))));
+
+function findPackageRootSync(startPath) {
+  let dir = path.dirname(startPath);
+  while (dir !== path.dirname(dir)) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.name === 'zxing-wasm') return dir;
+      } catch { /* continue searching */ }
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error('Could not find zxing-wasm package root from ' + startPath);
+}
+
+const pkgRoot = findPackageRootSync(cjsReaderPath);
 const zxingWasmReaderPath = path.join(pkgRoot, 'dist/es/reader/index.js');
 
 export default {

@@ -118,6 +118,16 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     }
     
     /**
+     * Validate that a candidate WASM module has the expected shape.
+     * Prevents accepting arbitrary objects from the global scope.
+     */
+    private static isValidWasmModule(candidate: unknown): candidate is WasmReaderModule {
+        if (candidate == null || typeof candidate !== 'object') return false;
+        const mod = candidate as Record<string, unknown>;
+        return typeof mod.readBarcodes === 'function';
+    }
+
+    /**
      * Auto-detect and inject WASM if available from global variables.
      */
     private static autoDetectWasm(): void {
@@ -127,11 +137,11 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         // Check for ZXingWASM global (from script tag)
         if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
             const globalZXingWASM = (window as any).ZXingWASM;
-            if (typeof globalZXingWASM.readBarcodes === 'function') {
+            if (BrowserQRCodeReader.isValidWasmModule(globalZXingWASM)) {
                 try {
                     BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
                 } catch (e) {
-                    // If injection fails, silently continue
+                    // If injection fails, silently continue — WASM is optional
                 }
             }
         }
@@ -162,8 +172,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         // Strategy 3: Try global variable (from script tag - fallback)
         if (typeof window !== 'undefined') {
             const globalZXingWASM = (window as any).ZXingWASM;
-            if (globalZXingWASM && typeof globalZXingWASM.readBarcodes === 'function') {
-                return globalZXingWASM;
+            if (BrowserQRCodeReader.isValidWasmModule(globalZXingWASM)) {
+                return { readBarcodes: globalZXingWASM.readBarcodes };
             }
         }
         
