@@ -268,39 +268,53 @@ export default class DecodedBitStreamParser {
     result: StringBuilder,
     count: number /*int*/,
     fc1InEffect: boolean): void /*throws FormatException*/ {
+    // PERF: Avoid repeated StringBuilder appends for large payloads by collecting
+    // decoded characters and appending once. In JS, repeated small appends can
+    // devolve into O(n²) behavior for very large alphanumeric segments.
+    const totalChars = count;
+    let remaining = count;
+    const chars: string[] = new Array(totalChars);
+    let charIndex = 0;
+
     // Read two characters at a time
-    const start = result.length();
-    while (count > 1) {
+    while (remaining > 1) {
       if (bits.available() < 11) {
         throw new FormatException();
       }
       const nextTwoCharsBits = bits.readBits(11);
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(Math.floor(nextTwoCharsBits / 45)));
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(nextTwoCharsBits % 45));
-      count -= 2;
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(Math.floor(nextTwoCharsBits / 45));
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(nextTwoCharsBits % 45);
+      remaining -= 2;
     }
-    if (count === 1) {
+    if (remaining === 1) {
       // special case: one character left
       if (bits.available() < 6) {
         throw new FormatException();
       }
-      result.append(DecodedBitStreamParser.toAlphaNumericChar(bits.readBits(6)));
+      chars[charIndex++] = DecodedBitStreamParser.toAlphaNumericChar(bits.readBits(6));
     }
+
     // See section 6.4.8.1, 6.4.8.2
     if (fc1InEffect) {
       // We need to massage the result a bit if in an FNC1 mode:
-      for (let i = start; i < result.length(); i++) {
-        if (result.charAt(i) === '%') {
-          if (i < result.length() - 1 && result.charAt(i + 1) === '%') {
-            // %% is rendered as %
-            result.deleteCharAt(i + 1);
-          } else {
-            // In alpha mode, % should be converted to FNC1 separator 0x1D
-            result.setCharAt(i, String.fromCharCode(0x1D));
-          }
+      let write = 0;
+      for (let read = 0; read < charIndex; read++) {
+        const c = chars[read];
+        if (c === '%' && read < charIndex - 1 && chars[read + 1] === '%') {
+          // %% is rendered as %
+          chars[write++] = '%';
+          read++; // Skip second %
+        } else if (c === '%') {
+          // In alpha mode, % should be converted to FNC1 separator 0x1D
+          chars[write++] = String.fromCharCode(0x1D);
+        } else {
+          chars[write++] = c;
         }
       }
+      charIndex = write;
     }
+
+    result.append(chars.slice(0, charIndex).join(''));
   }
 
   private static decodeNumericSegment(bits: BitSource,

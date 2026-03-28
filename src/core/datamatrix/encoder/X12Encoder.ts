@@ -3,7 +3,7 @@ import { char } from '../../../customTypings';
 import StringBuilder from '../../util/StringBuilder';
 import { C40Encoder } from './C40Encoder';
 import { EncoderContext } from './EncoderContext';
-import HighLevelEncoder from './HighLevelEncoder';
+import { EncoderUtils } from './EncoderUtils';
 import { X12_ENCODATION, ASCII_ENCODATION, X12_UNLATCH } from './constants';
 
 export class X12Encoder extends C40Encoder {
@@ -24,7 +24,7 @@ export class X12Encoder extends C40Encoder {
       if (count % 3 === 0) {
         this.writeNextTriplet(context, buffer);
 
-        const newMode = HighLevelEncoder.lookAheadTest(
+        const newMode = EncoderUtils.lookAheadTest(
           context.getMessage(),
           context.pos,
           this.getEncodingMode()
@@ -59,7 +59,7 @@ export class X12Encoder extends C40Encoder {
         } else if (c >= 'A'.charCodeAt(0) && c <= 'Z'.charCodeAt(0)) {
           sb.append(c - 65 + 14);
         } else {
-          HighLevelEncoder.illegalCharacter(StringUtils.getCharAt(c));
+          EncoderUtils.illegalCharacter(StringUtils.getCharAt(c));
         }
         break;
     }

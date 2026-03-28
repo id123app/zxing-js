@@ -3,7 +3,7 @@ import StringBuilder from '../../util/StringBuilder';
 import { char } from '../../../customTypings';
 import { Encoder } from './Encoder';
 import { EncoderContext } from './EncoderContext';
-import HighLevelEncoder from './HighLevelEncoder';
+import { EncoderUtils } from './EncoderUtils';
 import { BASE256_ENCODATION, ASCII_ENCODATION } from './constants';
 
 export class Base256Encoder implements Encoder {
@@ -20,7 +20,7 @@ export class Base256Encoder implements Encoder {
 
       context.pos++;
 
-      const newMode = HighLevelEncoder.lookAheadTest(
+      const newMode = EncoderUtils.lookAheadTest(
         context.getMessage(),
         context.pos,
         this.getEncodingMode()
