@@ -48,6 +48,7 @@ export default class ByteMatrix {
     }
 
     public get(x: number /*int*/, y: number /*int*/): number/*byte*/ {
+        this.assertValidCoordinates(x, y);
         return this.bytes[y][x];
     }
 
@@ -60,6 +61,7 @@ export default class ByteMatrix {
 
     // TYPESCRIPTPORT: preffer to let two methods instead of override to avoid type comparison inside
     public setNumber(x: number /*int*/, y: number /*int*/, value: number/*byte|int*/): void {
+        this.assertValidCoordinates(x, y);
         this.bytes[y][x] = value;
     }
 
@@ -68,7 +70,17 @@ export default class ByteMatrix {
     // }
 
     public setBoolean(x: number /*int*/, y: number /*int*/, value: boolean): void {
+        this.assertValidCoordinates(x, y);
         this.bytes[y][x] = /*(byte) */(value ? 1 : 0);
+    }
+
+    private assertValidCoordinates(x: number /*int*/, y: number /*int*/): void {
+        if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) {
+            throw new Error('Coordinates must be safe integers');
+        }
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+            throw new Error('Coordinates out of bounds');
+        }
     }
 
     public clear(value: number/*byte*/): void {
