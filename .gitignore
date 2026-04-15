@@ -3,6 +3,7 @@ staging/
 autotransform/input/*
 autotransform/output/*
 node_modules/
+certs/
 
 .DS_Store
 .idea
