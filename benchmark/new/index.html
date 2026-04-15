@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="author" content="ZXing for JS">
+
+  <title>ZXing TypeScript | Decoding from camera stream</title>
+
+  <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://fonts.googleapis.com/css?family=Roboto:300,300italic,700,700italic">
+  <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://unpkg.com/normalize.css@8.0.0/normalize.css">
+  <link rel="stylesheet" rel="preload" as="style" onload="this.rel='stylesheet';this.onload=null" href="https://unpkg.com/milligram@1.3.0/dist/milligram.min.css">
+</head>
+<body>
+<main class="wrapper" style="padding-top:2em">
+  <section class="container" id="demo-content" style="width: 100%">
+    <h1 class="title">Scan QR Code from Video Camera</h1>
+
+    <p>
+      <a class="button-small button-outline" href="/">OLD VERSION</a>
+    </p>
+
+    <div>
+      <label for="camera-select">Select Camera:</label>
+      <select id="camera-select"></select>
+    </div>
+
+    <div style="width: 100%; position: relative">
+
+      <div style="position: absolute; top :5px; left:5px; background: rgba(256,256,256,0.8); padding: 5px; border-radius: 5px; font-size: .8em">
+        Decodes per second: <span id="decodesPerSecond"></span><br>
+        Success decodes per second: <span id="successDecodesPerSecond"></span><br>
+        Errors per second: <span id="errorsPerSecond"></span><br>
+        Chars count: <span id="charCount"></span><br>
+        Last Error: <span id="lastError"></span><br>
+        Decode time: <span id="decodeTime"></span>ms<br>
+        Hint: <span id="hint"></span><br>
+      </div>
+      <video id="video" width="100%" height="500" style="border: 1px solid gray"></video>
+    </div>
+
+    <label>Result:</label>
+    <pre><code id="result"></code></pre>
+
+  </section>
+
+  <footer class="footer">
+    <section class="container">
+      <p>ZXing TypeScript Demo. Licensed under the <a target="_blank"
+                                                      href="https://github.com/zxing-js/library#license" title="MIT">MIT</a>.</p>
+    </section>
+  </footer>
+
+</main>
+
+<script type="text/javascript" src="/new/umd/dev.js?v=DEV"></script>
+<script type="text/javascript">
+
+  let decodesPerSecond = 0;
+  let successDecodesPerSecond = 0;
+  let errorsPerSecond = 0;
+  let currentCodeReader = null;
+  let decodeTime = null;
+
+  function decodeContinuously(codeReader, selectedDeviceId) {
+    if (currentCodeReader) {
+      currentCodeReader.reset();
+    }
+    currentCodeReader = codeReader;
+
+    codeReader.setFrameHintCallback(function(hint) {
+      document.getElementById('hint').innerText = hint;
+    });
+
+    codeReader.setDecodeTimeCallback(function(time) {
+      decodeTime = time;
+    });
+
+    codeReader.decodeFromInputVideoDeviceContinuously(selectedDeviceId, 'video', (result, err) => {
+      decodesPerSecond++;
+      if (result) {
+        successDecodesPerSecond++;
+        // properly decoded qr code
+        document.getElementById('result').textContent = result.text
+        document.getElementById('charCount').innerText = result.text.length.toString();
+      }
+
+      if (err) {
+        errorsPerSecond++;
+        const errName = err && (err.name || err.constructor?.name);
+        // As long as this error belongs into one of the following categories
+        // the code reader is going to continue as excepted. Any other error
+        // will stop the decoding loop.
+        //
+        // Excepted Exceptions:
+        //
+        //  - NotFoundException
+        //  - ChecksumException
+        //  - FormatException
+
+        if (errName === "NotFoundException") {
+          console.log('No QR code found.')
+          document.getElementById('lastError').innerText = 'No QR code found.';
+        }
+
+        if (errName === "ChecksumException") {
+          console.log('A code was found, but it\'s read value was not valid.')
+          document.getElementById('lastError').innerText = 'A code was found, but it\'s read value was not valid.';
+        }
+
+        if (errName === "FormatException") {
+          console.log('A code was found, but it was in a invalid format.')
+          document.getElementById('lastError').innerText = 'A code was found, but it was in a invalid format.';
+        }
+      }
+    })
+  }
+
+  window.addEventListener('load', async function () {
+    let selectedDeviceId;
+    setInterval(() => {
+      document.getElementById('decodesPerSecond').innerText=decodesPerSecond;
+      document.getElementById('successDecodesPerSecond').innerText=successDecodesPerSecond;
+      document.getElementById('errorsPerSecond').innerText=errorsPerSecond;
+
+      if (decodeTime) {
+        document.getElementById('decodeTime').innerText = decodeTime;
+      }
+
+      decodesPerSecond = 0;
+      successDecodesPerSecond = 0;
+      errorsPerSecond = 0;
+    }, 1000);
+    const codeReader = new ZXing.BrowserQRCodeReader()
+    console.log('ZXing code reader initialized')
+
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
+    codeReader.listVideoInputDevices()
+      .then((videoInputDevices) =>{
+        const cameraSelect = document.getElementById('camera-select');
+
+        videoInputDevices.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        selectedDeviceId = videoInputDevices[0].deviceId;
+        decodeContinuously(codeReader, selectedDeviceId);
+
+        cameraSelect.addEventListener('change', () => {
+          selectedDeviceId = cameraSelect.value;
+          decodeContinuously(codeReader, selectedDeviceId);
+        });
+      })
+      .catch((err) => {
+        console.error(err)
+      })
+  })
+</script>
+
+</body>
+
+</html>

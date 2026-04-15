@@ -157,15 +157,15 @@ export class BrowserCodeReader {
 
   /**
    * Lists all the available video input devices.
-   * 
+   *
    * @throws {Error} If navigator is not present or MediaDevices API is not available.
-   * 
+   *
    * @remarks
    * This method requires:
    * - A secure context (HTTPS or localhost)
    * - Browser support for MediaDevices API
    * - Proper permissions (may require user interaction first)
-   * 
+   *
    * Before calling this method, check availability using:
    * ```typescript
    * if (reader.canEnumerateDevices) {
@@ -175,7 +175,7 @@ export class BrowserCodeReader {
    *   console.warn('Device enumeration not supported in this environment');
    * }
    * ```
-   * 
+   *
    * @returns {Promise<MediaDeviceInfo[]>} Array of available video input devices
    */
   public async listVideoInputDevices(): Promise<MediaDeviceInfo[]> {
