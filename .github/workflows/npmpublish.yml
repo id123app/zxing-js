@@ -32,7 +32,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Audit dependencies for known vulnerabilities
-        run: npx audit-ci --high
+        run: npx audit-ci@7 --high
 
       - name: Build the application
         run: yarn build

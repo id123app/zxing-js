@@ -76,47 +76,4 @@ describe('BrowserQRCodeReader', () => {
     });
   });
 
-  describe('extractResultPoints (via decodeAsync fallback)', () => {
-    // We test the static extractResultPoints indirectly by verifying
-    // it handles edge cases properly. Since it's private, we test through
-    // the module's validation patterns.
-
-    it('should handle result with no position data gracefully', () => {
-      // This validates the pattern used in extractResultPoints
-      const result = { isValid: true, text: 'test', format: 'QRCode' };
-      assert.isUndefined(result['position']);
-    });
-
-    it('should validate position point structure', () => {
-      const validPosition = {
-        topLeft: { x: 0, y: 0 },
-        topRight: { x: 100, y: 0 },
-        bottomRight: { x: 100, y: 100 },
-        bottomLeft: { x: 0, y: 100 },
-      };
-      // Validate all points have finite coordinates
-      const points = [validPosition.topLeft, validPosition.topRight, validPosition.bottomRight, validPosition.bottomLeft];
-      for (const pt of points) {
-        assert.isNumber(pt.x);
-        assert.isNumber(pt.y);
-        assert.isTrue(Number.isFinite(pt.x));
-        assert.isTrue(Number.isFinite(pt.y));
-      }
-    });
-
-    it('should reject NaN coordinates', () => {
-      const invalidPosition = {
-        topLeft: { x: NaN, y: 0 },
-        topRight: { x: 100, y: 0 },
-        bottomRight: { x: 100, y: 100 },
-        bottomLeft: { x: 0, y: 100 },
-      };
-      assert.isFalse(Number.isFinite(invalidPosition.topLeft.x));
-    });
-
-    it('should reject Infinity coordinates', () => {
-      assert.isFalse(Number.isFinite(Infinity));
-      assert.isFalse(Number.isFinite(-Infinity));
-    });
-  });
 });

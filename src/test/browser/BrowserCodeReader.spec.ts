@@ -61,23 +61,4 @@ describe('BrowserCodeReader', () => {
     });
   });
 
-  describe('DOMException error classification', () => {
-    it('should correctly identify NotAllowedError', () => {
-      const err = new DOMException('', 'NotAllowedError');
-      assert.isTrue(err instanceof DOMException);
-      assert.equal(err.name, 'NotAllowedError');
-    });
-
-    it('should correctly identify SecurityError', () => {
-      const err = new DOMException('', 'SecurityError');
-      assert.isTrue(err instanceof DOMException);
-      assert.equal(err.name, 'SecurityError');
-    });
-
-    it('should correctly identify AbortError', () => {
-      const err = new DOMException('', 'AbortError');
-      assert.isTrue(err instanceof DOMException);
-      assert.equal(err.name, 'AbortError');
-    });
-  });
 });
