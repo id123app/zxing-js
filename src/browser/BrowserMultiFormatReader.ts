@@ -111,6 +111,10 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
   /** Configurable max pixel dimension for WASM downscaling */
   private _wasmMaxDimension: number;
 
+  get hints(): Map<DecodeHintType, any> {
+    return this._hints;
+  }
+
   set hints(hints: Map<DecodeHintType, any>) {
     this._hints = hints || null;
 

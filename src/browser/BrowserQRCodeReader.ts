@@ -406,6 +406,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             // Canvas tainted by cross-origin content: falling back would hit the same tainted
             // canvas and throw an unhelpful SecurityError, so surface a descriptive error instead.
             if (e instanceof DOMException && e.name === 'SecurityError') {
+                this.captureCanvas = undefined;
+                this.captureCanvasContext = undefined;
                 throw new Error('Canvas is tainted and cannot be read (CORS issue). Ensure images have proper CORS headers.');
             }
             // For any other error (WASM load failure, API mismatch, etc.), fall back
