@@ -179,6 +179,10 @@ export class BrowserCodeReader {
           );
         case 'AbortError':
           return new Error('Camera access was aborted.');
+        case 'SecurityError':
+          return new Error(
+            'Camera access requires a secure context (HTTPS). Please load the page over HTTPS.'
+          );
       }
     }
     if (err instanceof Error) return err;

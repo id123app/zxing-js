@@ -296,6 +296,12 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
     }
   }
 
+  public reset() {
+    super.reset();
+    this._wasmCanvas = null;
+    this._wasmCtx = null;
+  }
+
   /**
    * Extract ResultPoint array from WASM result, scaling coordinates back
    * to the original video resolution.

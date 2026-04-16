@@ -4,9 +4,7 @@ import {
   ASCII_ENCODATION,
   BASE256_ENCODATION,
   C40_ENCODATION,
-  TEXT_ENCODATION,
   X12_ENCODATION,
-  EDIFACT_ENCODATION,
 } from '../../../../core/datamatrix/encoder/constants';
 
 describe('EncoderUtils', () => {
@@ -142,7 +140,7 @@ describe('EncoderUtils', () => {
     it('should handle extended ASCII characters', () => {
       const extAscii = String.fromCharCode(200, 201, 202, 203, 204, 205);
       const result = EncoderUtils.lookAheadTest(extAscii, 0, ASCII_ENCODATION);
-      assert.isNumber(result);
+      assert.equal(result, BASE256_ENCODATION);
     });
   });
 });
