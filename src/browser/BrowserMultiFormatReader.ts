@@ -131,7 +131,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
   ) {
     const reader = new MultiFormatReader();
     reader.setHints(hints);
-    super(reader, timeBetweenScansMillis);
+    super(reader, timeBetweenScansMillis, hints);
     this._wasmMaxDimension = wasmMaxDimension > 0 ? wasmMaxDimension : DEFAULT_WASM_MAX_DIMENSION;
   }
 
@@ -258,7 +258,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         tryHarder: true,
         tryRotate: false,
         tryInvert: false,
-        tryDownscale: true,
+        tryDownscale: false,
         maxNumberOfSymbols: 1,
       };
 
