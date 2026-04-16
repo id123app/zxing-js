@@ -172,7 +172,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
    * Get or create a downscaled canvas for WASM processing.
    * Reuses the canvas if dimensions haven't changed.
    */
-  private getWasmCanvas(srcWidth: number, srcHeight: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; scale: number } {
+  private getWasmCanvas(srcWidth: number, srcHeight: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; scale: number } | null {
     const maxDim = Math.max(srcWidth, srcHeight);
     const scale = maxDim > this._wasmMaxDimension ? this._wasmMaxDimension / maxDim : 1;
     const dstWidth = Math.round(srcWidth * scale);
@@ -289,6 +289,8 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       if (e instanceof NotFoundException) throw e;
       // Distinguish security errors (CORS) — these won't be fixed by falling back
       if (e instanceof DOMException && e.name === 'SecurityError') {
+        this._wasmCanvas = null;
+        this._wasmCtx = null;
         throw new Error('Canvas is tainted (CORS). Ensure media has proper cross-origin headers.');
       }
       // For WASM load/runtime errors, fall back to pure TypeScript decoder
