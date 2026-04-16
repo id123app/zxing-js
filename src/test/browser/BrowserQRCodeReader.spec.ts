@@ -1,6 +1,5 @@
 import { assert } from 'chai';
 import { BrowserQRCodeReader } from '../../browser/BrowserQRCodeReader';
-import ResultPoint from '../../core/ResultPoint';
 
 describe('BrowserQRCodeReader', () => {
 
@@ -59,13 +58,16 @@ describe('BrowserQRCodeReader', () => {
   });
 
   describe('resetWasm', () => {
-    it('should clear the injected WASM module', () => {
-      const fakeModule = { readBarcodes: () => [] };
-      BrowserQRCodeReader.injectWasmReader(fakeModule);
+    afterEach(() => {
       BrowserQRCodeReader.resetWasm();
-      // After reset, isWasmAvailable may still return true if
-      // the bundled import is available, but the injected module is cleared
-      assert.doesNotThrow(() => BrowserQRCodeReader.resetWasm());
+    });
+
+    it('should allow re-injection after reset', () => {
+      const module1 = { readBarcodes: () => [] };
+      const module2 = { readBarcodes: () => [] };
+      BrowserQRCodeReader.injectWasmReader(module1);
+      BrowserQRCodeReader.resetWasm();
+      assert.doesNotThrow(() => BrowserQRCodeReader.injectWasmReader(module2));
     });
   });
 
