@@ -47,7 +47,9 @@ jobs:
 
       - name: Verify package integrity
         run: |
-          tar -tzf package.tgz > /dev/null
+          tar -tzf package.tgz | grep -q 'package/cjs/index.js' || { echo "Missing cjs/index.js"; exit 1; }
+          tar -tzf package.tgz | grep -q 'package/esm/index.js' || { echo "Missing esm/index.js"; exit 1; }
+          tar -tzf package.tgz | grep -q 'package/umd/index.js' || { echo "Missing umd/index.js"; exit 1; }
           echo "Package integrity verified."
 
       - name: Upload build artifacts

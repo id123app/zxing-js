@@ -136,10 +136,7 @@ describe('EncoderUtils', () => {
 
     it('should handle uppercase-only strings (C40 or X12 favorable)', () => {
       const result = EncoderUtils.lookAheadTest('ABCDEFGHIJKLMNOP', 0, ASCII_ENCODATION);
-      // Should suggest a mode switch for uppercase-dominant text
-      assert.isNumber(result);
-      assert.isAtLeast(result, 0);
-      assert.isAtMost(result, 5);
+      assert.oneOf(result, [C40_ENCODATION, X12_ENCODATION]);
     });
 
     it('should handle extended ASCII characters', () => {
