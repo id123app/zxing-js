@@ -1292,6 +1292,10 @@ export class BrowserCodeReader {
     try {
       videoElement.srcObject = null;
     } catch (err) {
+      // Revoke any blob URL to prevent memory leak
+      if (videoElement.src && videoElement.src.startsWith('blob:')) {
+        URL.revokeObjectURL(videoElement.src);
+      }
       videoElement.src = '';
     }
 
