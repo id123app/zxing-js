@@ -283,7 +283,11 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         throw new NotFoundException();
       }
 
-      const barcodeFormat = WASM_FORMAT_TO_BARCODE_FORMAT[first.format] ?? BarcodeFormat.QR_CODE;
+      const barcodeFormat = WASM_FORMAT_TO_BARCODE_FORMAT[first.format];
+      if (barcodeFormat === undefined) {
+        console.warn(`Unknown WASM barcode format: "${first.format}", skipping result`);
+        throw new NotFoundException();
+      }
 
       // Extract points and scale back to original video resolution
       const points = BrowserMultiFormatReader.extractResultPoints(first, scale);
