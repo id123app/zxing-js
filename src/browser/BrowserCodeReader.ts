@@ -654,7 +654,7 @@ export class BrowserCodeReader {
     url: string | null,
     callbackFn: DecodeContinuouslyCallback
   ): Promise<void> {
-    if (undefined === source && undefined === url) {
+    if (!source && !url) {
       throw new ArgumentException(
         'Either an element with a src set or an URL must be provided'
       );
