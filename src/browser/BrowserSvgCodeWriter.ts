@@ -141,8 +141,8 @@ abstract class BrowserSvgCodeWriter {
 
         const el = document.createElementNS(BrowserSvgCodeWriter.SVG_NS, 'svg');
 
-        el.setAttributeNS(null, 'width', h.toString());
-        el.setAttributeNS(null, 'height', w.toString());
+        el.setAttributeNS(null, 'width', w.toString());
+        el.setAttributeNS(null, 'height', h.toString());
 
         return el;
     }
@@ -169,8 +169,8 @@ abstract class BrowserSvgCodeWriter {
 
         el.setAttributeNS(null, 'x', x.toString());
         el.setAttributeNS(null, 'y', y.toString());
-        el.setAttributeNS(null, 'height', w.toString());
-        el.setAttributeNS(null, 'width', h.toString());
+        el.setAttributeNS(null, 'width', w.toString());
+        el.setAttributeNS(null, 'height', h.toString());
         el.setAttributeNS(null, 'fill', '#000000');
 
         return el;
