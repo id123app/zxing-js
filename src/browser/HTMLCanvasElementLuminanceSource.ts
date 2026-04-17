@@ -10,23 +10,23 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
     private buffer: Uint8ClampedArray;
 
     private static DEGREE_TO_RADIANS = Math.PI / 180;
-    private frameIndex = true;
+    private static FRAME_INDEX = true;
 
     private tempCanvasElement: HTMLCanvasElement = null;
 
     public constructor(private canvas: HTMLCanvasElement, doAutoInvert: boolean = false) {
       super(canvas.width, canvas.height);
-      this.buffer = this.makeBufferFromCanvasImageData(canvas, doAutoInvert);
+      this.buffer = HTMLCanvasElementLuminanceSource.makeBufferFromCanvasImageData(canvas, doAutoInvert);
     }
 
-    private makeBufferFromCanvasImageData(canvas: HTMLCanvasElement, doAutoInvert: boolean = false): Uint8ClampedArray {
+    private static makeBufferFromCanvasImageData(canvas: HTMLCanvasElement, doAutoInvert: boolean = false): Uint8ClampedArray {
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         throw new Error('Could not obtain 2D context from canvas element');
       }
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      this.frameIndex = !this.frameIndex;
-      return HTMLCanvasElementLuminanceSource.toGrayscaleBuffer(imageData.data, canvas.width, canvas.height, doAutoInvert, this.frameIndex);
+      HTMLCanvasElementLuminanceSource.FRAME_INDEX = !HTMLCanvasElementLuminanceSource.FRAME_INDEX;
+      return HTMLCanvasElementLuminanceSource.toGrayscaleBuffer(imageData.data, canvas.width, canvas.height, doAutoInvert, HTMLCanvasElementLuminanceSource.FRAME_INDEX);
     }
 
     private static toGrayscaleBuffer(imageBuffer: Uint8ClampedArray, width: number, height: number, doAutoInvert: boolean = false, frameIndex: boolean = true): Uint8ClampedArray {
@@ -156,7 +156,7 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
         tempContext.translate(newWidth / 2, newHeight / 2);
         tempContext.rotate(angleRadians);
         tempContext.drawImage(this.canvas, width / -2, height / -2);
-        this.buffer = this.makeBufferFromCanvasImageData(tempCanvasElement);
+        this.buffer = HTMLCanvasElementLuminanceSource.makeBufferFromCanvasImageData(tempCanvasElement);
         return this;
     }
 

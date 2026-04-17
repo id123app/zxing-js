@@ -32,6 +32,11 @@ export class BrowserCodeReader {
     return this.hasNavigator && !!navigator.mediaDevices;
   }
 
+  /** @deprecated Use `isMediaDevicesSupported` (corrected spelling). */
+  public get isMediaDevicesSuported() {
+    return this.isMediaDevicesSupported;
+  }
+
   /**
    * If enumerateDevices under navigator is supported.
    */
@@ -269,7 +274,7 @@ export class BrowserCodeReader {
   /**
    * Let's you find a device using it's Id.
    */
-  public async findDeviceById(deviceId: string): Promise<MediaDeviceInfo> {
+  public async findDeviceById(deviceId: string): Promise<MediaDeviceInfo | undefined> {
     const devices = await this.listVideoInputDevices();
 
     return devices.find(x => x.deviceId === deviceId);
@@ -1285,13 +1290,12 @@ export class BrowserCodeReader {
    * @param videoElement
    */
   private cleanVideoSource(videoElement: HTMLVideoElement): void {
+    if (videoElement.src && videoElement.src.startsWith('blob:')) {
+      URL.revokeObjectURL(videoElement.src);
+    }
     try {
       videoElement.srcObject = null;
     } catch (err) {
-      // Revoke any blob URL to prevent memory leak
-      if (videoElement.src && videoElement.src.startsWith('blob:')) {
-        URL.revokeObjectURL(videoElement.src);
-      }
       videoElement.src = '';
     }
 
