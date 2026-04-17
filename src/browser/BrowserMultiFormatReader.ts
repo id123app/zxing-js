@@ -93,12 +93,12 @@ const BARCODE_FORMAT_TO_WASM: Record<number, string> = {
 };
 
 /**
- * Max pixel dimension for WASM processing. Frames larger than this are
+ * Default max pixel dimension for WASM processing. Frames larger than this are
  * downscaled before passing to readBarcodes, dramatically improving
  * frame rate (and thus detection reliability) for live camera feeds.
  * 640px is sufficient for all common barcode types from camera.
  */
-const WASM_MAX_DIMENSION = 640;
+const DEFAULT_WASM_MAX_DIMENSION = 640;
 
 export class BrowserMultiFormatReader extends BrowserCodeReader {
 
@@ -108,6 +108,13 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
   private _wasmCanvas: HTMLCanvasElement | null = null;
   private _wasmCtx: CanvasRenderingContext2D | null = null;
 
+  /** Configurable max pixel dimension for WASM downscaling */
+  private _wasmMaxDimension: number;
+
+  get hints(): Map<DecodeHintType, any> {
+    return this._hints;
+  }
+
   set hints(hints: Map<DecodeHintType, any>) {
     this._hints = hints || null;
 
@@ -115,13 +122,21 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
     this.reader.setHints(hints);
   }
 
+  /**
+   * @param hints Decode hints (e.g. POSSIBLE_FORMATS)
+   * @param timeBetweenScansMillis Delay between decode attempts (default 500)
+   * @param wasmMaxDimension Max pixel dimension before downscaling for WASM (default 640).
+   *        Increase for high-density barcodes, decrease for faster processing on slow devices.
+   */
   public constructor(
     hints: Map<DecodeHintType, any> = null,
-    timeBetweenScansMillis: number = 500
+    timeBetweenScansMillis: number = 500,
+    wasmMaxDimension: number = DEFAULT_WASM_MAX_DIMENSION
   ) {
     const reader = new MultiFormatReader();
     reader.setHints(hints);
-    super(reader, timeBetweenScansMillis);
+    super(reader, timeBetweenScansMillis, hints);
+    this._wasmMaxDimension = wasmMaxDimension > 0 ? wasmMaxDimension : DEFAULT_WASM_MAX_DIMENSION;
   }
 
   /**
@@ -161,9 +176,9 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
    * Get or create a downscaled canvas for WASM processing.
    * Reuses the canvas if dimensions haven't changed.
    */
-  private getWasmCanvas(srcWidth: number, srcHeight: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; scale: number } {
+  private getWasmCanvas(srcWidth: number, srcHeight: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; scale: number } | null {
     const maxDim = Math.max(srcWidth, srcHeight);
-    const scale = maxDim > WASM_MAX_DIMENSION ? WASM_MAX_DIMENSION / maxDim : 1;
+    const scale = maxDim > this._wasmMaxDimension ? this._wasmMaxDimension / maxDim : 1;
     const dstWidth = Math.round(srcWidth * scale);
     const dstHeight = Math.round(srcHeight * scale);
 
@@ -227,6 +242,11 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const { canvas, ctx, scale } = wasm;
 
+      // Validate dimensions before drawing
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        throw new Error(`Invalid WASM canvas dimensions: ${canvas.width}x${canvas.height}`);
+      }
+
       // Draw element scaled down onto the WASM canvas
       ctx.drawImage(element as any, 0, 0, canvas.width, canvas.height);
 
@@ -242,7 +262,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         tryHarder: true,
         tryRotate: false,
         tryInvert: false,
-        tryDownscale: true,
+        tryDownscale: false,
         maxNumberOfSymbols: 1,
       };
 
@@ -271,9 +291,21 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       return new Result(first.text, null, 0, points ?? [], barcodeFormat);
     } catch (e) {
       if (e instanceof NotFoundException) throw e;
-      // For any other error, fall back to pure TypeScript decoder
+      // Distinguish security errors (CORS) — these won't be fixed by falling back
+      if (e instanceof DOMException && e.name === 'SecurityError') {
+        this._wasmCanvas = null;
+        this._wasmCtx = null;
+        throw new Error('Canvas is tainted (CORS). Ensure media has proper cross-origin headers.');
+      }
+      // For WASM load/runtime errors, fall back to pure TypeScript decoder
       return super.decodeAsync(element);
     }
+  }
+
+  public reset() {
+    super.reset();
+    this._wasmCanvas = null;
+    this._wasmCtx = null;
   }
 
   /**

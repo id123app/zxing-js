@@ -1,6 +1,6 @@
 {
     "parserOptions": {
-        "ecmaVersion": 8,
+        "ecmaVersion": 2020,
         "sourceType": "module",
         "ecmaFeatures": {
             "jsx": false
@@ -8,9 +8,23 @@
     },
     "rules": {
         "semi": "error",
-        "quotes": ["error", "single"]
+        "quotes": ["error", "single"],
+        "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+        "no-debugger": "error",
+        "no-console": ["warn", { "allow": ["warn", "error"] }],
+        "no-eval": "error",
+        "no-implied-eval": "error",
+        "no-new-func": "error",
+        "no-script-url": "error",
+        "no-unreachable": "error",
+        "no-shadow": "warn",
+        "eqeqeq": ["error", "smart"],
+        "no-var": "warn",
+        "prefer-const": "warn"
     },
     "env": {
-        "es6": true
+        "es6": true,
+        "browser": true,
+        "node": true
     }
 }

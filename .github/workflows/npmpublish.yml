@@ -18,10 +18,10 @@ jobs:
 
       - name: Get yarn cache directory path
         id: yarn-cache-dir-path
-        run: echo "::set-output name=dir::$(yarn cache dir)"
+        run: echo "dir=$(yarn cache dir)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache@v4
-        id: yarn-cache # use this to check for `cache-hit` (`steps.yarn-cache.outputs.cache-hit != 'true'`)
+        id: yarn-cache
         with:
           path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
           key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
@@ -30,6 +30,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Audit dependencies for known vulnerabilities
+        run: npx audit-ci@7 --high
 
       - name: Build the application
         run: yarn build
@@ -42,15 +45,18 @@ jobs:
           npm pack dist/
           mv zxing-library-*.tgz package.tgz
 
+      - name: Verify package integrity
+        run: |
+          tar -tzf package.tgz | grep -q 'package/cjs/index.js' || { echo "Missing cjs/index.js"; exit 1; }
+          tar -tzf package.tgz | grep -q 'package/esm/index.js' || { echo "Missing esm/index.js"; exit 1; }
+          tar -tzf package.tgz | grep -q 'package/umd/index.js' || { echo "Missing umd/index.js"; exit 1; }
+          echo "Package integrity verified."
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: pack-artifact
           path: ./package.tgz
-          # If true, an artifact with a matching name will be deleted before a new one is uploaded.
-          # If false, the action will fail if an artifact for the given name already exists.
-          # Does not fail if the artifact does not exist.
-          # Optional. Default is 'false'
           overwrite: true
 
   publish-npm:

@@ -118,6 +118,16 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
     }
     
     /**
+     * Validate that a candidate WASM module has the expected shape.
+     * Prevents accepting arbitrary objects from the global scope.
+     */
+    private static isValidWasmModule(candidate: unknown): candidate is WasmReaderModule {
+        if (candidate == null || typeof candidate !== 'object') return false;
+        const mod = candidate as Record<string, unknown>;
+        return typeof mod.readBarcodes === 'function';
+    }
+
+    /**
      * Auto-detect and inject WASM if available from global variables.
      */
     private static autoDetectWasm(): void {
@@ -127,11 +137,11 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         // Check for ZXingWASM global (from script tag)
         if (typeof window !== 'undefined' && (window as any).ZXingWASM) {
             const globalZXingWASM = (window as any).ZXingWASM;
-            if (typeof globalZXingWASM.readBarcodes === 'function') {
+            if (BrowserQRCodeReader.isValidWasmModule(globalZXingWASM)) {
                 try {
                     BrowserQRCodeReader.injectWasmReader({ readBarcodes: globalZXingWASM.readBarcodes });
                 } catch (e) {
-                    // If injection fails, silently continue
+                    // If injection fails, silently continue — WASM is optional
                 }
             }
         }
@@ -162,8 +172,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
         // Strategy 3: Try global variable (from script tag - fallback)
         if (typeof window !== 'undefined') {
             const globalZXingWASM = (window as any).ZXingWASM;
-            if (globalZXingWASM && typeof globalZXingWASM.readBarcodes === 'function') {
-                return globalZXingWASM;
+            if (BrowserQRCodeReader.isValidWasmModule(globalZXingWASM)) {
+                return { readBarcodes: globalZXingWASM.readBarcodes };
             }
         }
         
@@ -278,13 +288,14 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             }
             
             // Get image data from canvas - can throw SecurityError if canvas is tainted (CORS issue)
+            // Let SecurityError propagate as DOMException so the outer catch can distinguish it
+            // from WASM failures and avoid falling back to the same tainted canvas.
             let imageData: ImageData;
             try {
                 imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             } catch (getImageDataError) {
-                // SecurityError occurs when canvas is tainted (e.g., cross-origin image without CORS headers)
                 if (getImageDataError instanceof DOMException && getImageDataError.name === 'SecurityError') {
-                    throw new Error('Canvas is tainted and cannot be read (CORS issue). Ensure images have proper CORS headers.');
+                    throw getImageDataError;
                 }
                 throw new Error(`Failed to get image data from canvas: ${getImageDataError instanceof Error ? getImageDataError.message : String(getImageDataError)}`);
             }
@@ -310,12 +321,13 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 return super.decodeAsync(element);
             }
             
-            const readBarcodes = wasmReader.readBarcodes;
-            
-            // Defensive runtime check: validate readBarcodes is actually callable
+            // Renamed from `readBarcodes` to avoid shadowing the module-level import
+            const wasmReadBarcodes = wasmReader.readBarcodes;
+
+            // Defensive runtime check: validate the function is actually callable
             // This is technically redundant after the checks above, but provides an extra safety layer
             // in case the module structure is unexpected or has been modified at runtime
-            if (typeof readBarcodes !== 'function') {
+            if (typeof wasmReadBarcodes !== 'function') {
                 throw new Error('zxing-wasm readBarcodes is not a function');
             }
             
@@ -335,7 +347,7 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             // If it throws synchronously, the outer try-catch will handle it
             let results: any;
             try {
-                const readBarcodesResult = readBarcodes(imageData, options);
+                const readBarcodesResult = wasmReadBarcodes(imageData, options);
                 
                 // Handle both Promise and direct value returns
                 // Use robust Promise detection: check for .then method (works across realms and polyfills)
@@ -390,6 +402,13 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
             // This matches the base behavior and avoids a second decode attempt on the same frame.
             if (e instanceof NotFoundException) {
                 throw e; // Re-throw NotFoundException - it's expected and does not trigger fallback
+            }
+            // Canvas tainted by cross-origin content: falling back would hit the same tainted
+            // canvas and throw an unhelpful SecurityError, so surface a descriptive error instead.
+            if (e instanceof DOMException && e.name === 'SecurityError') {
+                this.captureCanvas = undefined;
+                this.captureCanvasContext = undefined;
+                throw new Error('Canvas is tainted and cannot be read (CORS issue). Ensure images have proper CORS headers.');
             }
             // For any other error (WASM load failure, API mismatch, etc.), fall back
             // to the regular TypeScript-based decoder for backward compatibility.

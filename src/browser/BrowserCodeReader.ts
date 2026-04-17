@@ -156,6 +156,40 @@ export class BrowserCodeReader {
   ) {}
 
   /**
+   * Wraps getUserMedia errors with user-friendly messages.
+   */
+  private static wrapGetUserMediaError(err: unknown): Error {
+    if (err instanceof DOMException) {
+      switch (err.name) {
+        case 'NotAllowedError':
+          return new Error(
+            'Camera access denied. Please grant camera permission and try again.'
+          );
+        case 'NotFoundError':
+          return new Error(
+            'No camera found. Please connect a camera device and try again.'
+          );
+        case 'NotReadableError':
+          return new Error(
+            'Camera is already in use by another application.'
+          );
+        case 'OverconstrainedError':
+          return new Error(
+            'Camera does not satisfy the requested constraints (resolution, facing mode, etc.).'
+          );
+        case 'AbortError':
+          return new Error('Camera access was aborted.');
+        case 'SecurityError':
+          return new Error(
+            'Camera access requires a secure context (HTTPS). Please load the page over HTTPS.'
+          );
+      }
+    }
+    if (err instanceof Error) return err;
+    return new Error(`Failed to access camera: ${String(err)}`);
+  }
+
+  /**
    * Lists all the available video input devices.
    *
    * @throws {Error} If navigator is not present or MediaDevices API is not available.
@@ -304,7 +338,12 @@ export class BrowserCodeReader {
     constraints: MediaStreamConstraints,
     videoSource?: string | HTMLVideoElement
   ): Promise<Result> {
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      throw BrowserCodeReader.wrapGetUserMediaError(err);
+    }
 
     return await this.decodeOnceFromStream(stream, videoSource);
   }
@@ -394,7 +433,12 @@ export class BrowserCodeReader {
     videoSource: string | HTMLVideoElement,
     callbackFn: DecodeContinuouslyCallback
   ): Promise<void> {
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      throw BrowserCodeReader.wrapGetUserMediaError(err);
+    }
 
     return await this.decodeFromStream(stream, videoSource, callbackFn);
   }
