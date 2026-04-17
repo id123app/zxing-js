@@ -20,7 +20,11 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
     }
 
     private static makeBufferFromCanvasImageData(canvas: HTMLCanvasElement, doAutoInvert: boolean = false): Uint8ClampedArray {
-      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not obtain 2D context from canvas element');
+      }
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       return HTMLCanvasElementLuminanceSource.toGrayscaleBuffer(imageData.data, canvas.width, canvas.height, doAutoInvert);
     }
 
