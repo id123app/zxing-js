@@ -10,28 +10,28 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
     private buffer: Uint8ClampedArray;
 
     private static DEGREE_TO_RADIANS = Math.PI / 180;
-    private static FRAME_INDEX = true;
+    private frameIndex = true;
 
     private tempCanvasElement: HTMLCanvasElement = null;
 
     public constructor(private canvas: HTMLCanvasElement, doAutoInvert: boolean = false) {
       super(canvas.width, canvas.height);
-      this.buffer = HTMLCanvasElementLuminanceSource.makeBufferFromCanvasImageData(canvas, doAutoInvert);
+      this.buffer = this.makeBufferFromCanvasImageData(canvas, doAutoInvert);
     }
 
-    private static makeBufferFromCanvasImageData(canvas: HTMLCanvasElement, doAutoInvert: boolean = false): Uint8ClampedArray {
+    private makeBufferFromCanvasImageData(canvas: HTMLCanvasElement, doAutoInvert: boolean = false): Uint8ClampedArray {
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         throw new Error('Could not obtain 2D context from canvas element');
       }
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      return HTMLCanvasElementLuminanceSource.toGrayscaleBuffer(imageData.data, canvas.width, canvas.height, doAutoInvert);
+      this.frameIndex = !this.frameIndex;
+      return HTMLCanvasElementLuminanceSource.toGrayscaleBuffer(imageData.data, canvas.width, canvas.height, doAutoInvert, this.frameIndex);
     }
 
-    private static toGrayscaleBuffer(imageBuffer: Uint8ClampedArray, width: number, height: number, doAutoInvert: boolean = false): Uint8ClampedArray {
+    private static toGrayscaleBuffer(imageBuffer: Uint8ClampedArray, width: number, height: number, doAutoInvert: boolean = false, frameIndex: boolean = true): Uint8ClampedArray {
       const grayscaleBuffer = new Uint8ClampedArray(width * height);
-      HTMLCanvasElementLuminanceSource.FRAME_INDEX = !HTMLCanvasElementLuminanceSource.FRAME_INDEX;
-      if (HTMLCanvasElementLuminanceSource.FRAME_INDEX || !doAutoInvert) {
+      if (frameIndex || !doAutoInvert) {
         for (let i = 0, j = 0, length = imageBuffer.length; i < length; i += 4, j++) {
           let gray;
           const alpha = imageBuffer[i + 3];
@@ -161,7 +161,7 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
         tempContext.translate(newWidth / 2, newHeight / 2);
         tempContext.rotate(angleRadians);
         tempContext.drawImage(this.canvas, width / -2, height / -2);
-        this.buffer = HTMLCanvasElementLuminanceSource.makeBufferFromCanvasImageData(tempCanvasElement);
+        this.buffer = this.makeBufferFromCanvasImageData(tempCanvasElement);
         return this;
     }
 
