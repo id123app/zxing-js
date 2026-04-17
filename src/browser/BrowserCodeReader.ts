@@ -1295,6 +1295,6 @@ export class BrowserCodeReader {
       videoElement.src = '';
     }
 
-    this.videoElement.removeAttribute('src');
+    videoElement.removeAttribute('src');
   }
 }
