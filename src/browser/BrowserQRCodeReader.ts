@@ -295,25 +295,8 @@ export class BrowserQRCodeReader extends BrowserCodeReader {
                 throw new Error(`ImageData length mismatch: expected ${expectedLength}, got ${imageData.data.length}`);
             }
 
-            // Validate wasmReader is still available (defensive check)
-            if (!wasmReader) {
-                return super.decodeAsync(element);
-            }
-
-            // Get readBarcodes function from the module
-            if (!wasmReader.readBarcodes) {
-                return super.decodeAsync(element);
-            }
-            
             // Renamed from `readBarcodes` to avoid shadowing the module-level import
             const wasmReadBarcodes = wasmReader.readBarcodes;
-
-            // Defensive runtime check: validate the function is actually callable
-            // This is technically redundant after the checks above, but provides an extra safety layer
-            // in case the module structure is unexpected or has been modified at runtime
-            if (typeof wasmReadBarcodes !== 'function') {
-                throw new Error('zxing-wasm readBarcodes is not a function');
-            }
             
             // Build options - downscaling is always disabled in the WASM path for all frame sizes.
             // This ensures accurate scanning of high-density QR codes (1500+ characters), especially
