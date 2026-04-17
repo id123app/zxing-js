@@ -84,10 +84,20 @@ export function findCandidatesL2(gray: Uint8Array, W: number, H: number): ROI | 
 
   // More generous bounding box
   const margin = 30;  // Increased from 20
-  const minx = Math.max(0, Math.min(...xs) - margin);
-  const maxx = Math.min(dw - 1, Math.max(...xs) + margin);
-  const miny = Math.max(0, Math.min(...ys) - margin);
-  const maxy = Math.min(dh - 1, Math.max(...ys) + margin);
+  let minxVal = xs[0], maxxVal = xs[0];
+  for (let i = 1; i < xs.length; i++) {
+    if (xs[i] < minxVal) minxVal = xs[i];
+    if (xs[i] > maxxVal) maxxVal = xs[i];
+  }
+  let minyVal = ys[0], maxyVal = ys[0];
+  for (let i = 1; i < ys.length; i++) {
+    if (ys[i] < minyVal) minyVal = ys[i];
+    if (ys[i] > maxyVal) maxyVal = ys[i];
+  }
+  const minx = Math.max(0, minxVal - margin);
+  const maxx = Math.min(dw - 1, maxxVal + margin);
+  const miny = Math.max(0, minyVal - margin);
+  const maxy = Math.min(dh - 1, maxyVal + margin);
 
   const sx = W / dw, sy = H / dh;
   return {
