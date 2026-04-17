@@ -9,26 +9,10 @@ import Result from '../core/Result';
 import ResultPoint from '../core/ResultPoint';
 
 // Import zxing-wasm - will be bundled in UMD builds
-import { readBarcodes, prepareZXingModule } from 'zxing-wasm/reader';
+import { readBarcodes } from 'zxing-wasm/reader';
 
-// Override the default locateFile to prevent external CDN calls (fastly.jsdelivr.net).
-// Resolve the WASM binary relative to this script's location. The UMD bundle lives at
-// node_modules/zxing-js/dist/umd/index.js and the WASM binary at
-// node_modules/zxing-wasm/dist/reader/zxing_reader.wasm.
-const _scriptSrc = (typeof document !== 'undefined' && document.currentScript instanceof HTMLScriptElement)
-  ? document.currentScript.src
-  : '';
-prepareZXingModule({
-  overrides: {
-    locateFile: (path: string, _prefix: string) => {
-      if (_scriptSrc && path.endsWith('.wasm')) {
-        // Use URL to properly resolve ../../../ relative to the script location
-        return new URL('../../../zxing-wasm/dist/reader/' + path, _scriptSrc).href;
-      }
-      return _prefix + path;
-    },
-  },
-});
+// Ensure WASM locateFile override is configured exactly once
+import './wasmSetup';
 
 /** Options for zxing-wasm readBarcodes function. */
 interface ZXingWasmReaderOptions {
