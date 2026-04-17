@@ -106,12 +106,7 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
     }
 
     public isCropSupported(): boolean {
-        return true;
-    }
-
-    public crop(left: number /*int*/, top: number /*int*/, width: number /*int*/, height: number /*int*/): LuminanceSource {
-        super.crop(left, top, width, height);
-        return this;
+        return false;
     }
 
     /**
