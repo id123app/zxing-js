@@ -272,10 +272,6 @@ export class BrowserCodeReader {
   public async findDeviceById(deviceId: string): Promise<MediaDeviceInfo> {
     const devices = await this.listVideoInputDevices();
 
-    if (!devices) {
-      return null;
-    }
-
     return devices.find(x => x.deviceId === deviceId);
   }
 
