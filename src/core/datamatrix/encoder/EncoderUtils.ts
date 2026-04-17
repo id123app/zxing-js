@@ -338,8 +338,18 @@ export class EncoderUtils {
     return ch >= ' '.charCodeAt(0) && ch <= '^'.charCodeAt(0);
   }
 
-  private static isSpecialB256(ch: number): boolean {
-    return false; // TODO NOT IMPLEMENTED YET!!!
+  /**
+   * Checks if a character requires special handling in Base256 encoding.
+   *
+   * Per the Java ZXing reference implementation, no characters currently
+   * require special B256 handling — all byte values 0–255 are treated
+   * uniformly. This method exists as a hook for future specification
+   * changes. Callers use the return value to add extra weight (4.0) to
+   * the B256 character count in the look-ahead algorithm; returning false
+   * means every character costs exactly 1.0 in B256 mode.
+   */
+  private static isSpecialB256(_ch: number): boolean {
+    return false;
   }
 
   public static determineConsecutiveDigitCount(
