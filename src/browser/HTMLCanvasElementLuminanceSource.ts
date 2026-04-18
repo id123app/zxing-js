@@ -142,6 +142,9 @@ export class HTMLCanvasElementLuminanceSource extends LuminanceSource {
     private rotate(angle: number) {
         const tempCanvasElement = this.getTempCanvasElement();
         const tempContext = tempCanvasElement.getContext('2d');
+        if (!tempContext) {
+          throw new Error('Could not obtain 2D context from temp canvas element');
+        }
         const angleRadians = angle * HTMLCanvasElementLuminanceSource.DEGREE_TO_RADIANS;
 
         // Calculate and set new dimensions for temp canvas
