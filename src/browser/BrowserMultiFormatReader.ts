@@ -269,7 +269,6 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const barcodeFormat = WASM_FORMAT_TO_BARCODE_FORMAT[first.format];
       if (barcodeFormat === undefined) {
-        console.warn(`Unknown WASM barcode format: "${first.format}", skipping result`);
         throw new NotFoundException();
       }
 
