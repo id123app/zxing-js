@@ -241,8 +241,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const wasmFormats = this.getWasmFormats();
 
-      const options: ZXingWasmReaderOptions = {
-        formats: wasmFormats ?? ['Linear-Codes', 'Matrix-Codes'],
+      const baseOptions: ZXingWasmReaderOptions = {
         tryHarder: true,
         tryRotate: false,
         tryInvert: false,
@@ -250,11 +249,28 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         maxNumberOfSymbols: 1,
       };
 
-      const readBarcodesResult = readBarcodes(imageData, options as any);
-      const isPromise = readBarcodesResult != null &&
-                        typeof readBarcodesResult === 'object' &&
-                        typeof (readBarcodesResult as any).then === 'function';
-      const results: any = isPromise ? await readBarcodesResult : readBarcodesResult;
+      const runWasm = async (formats: string[]): Promise<any> => {
+        const r = readBarcodes(imageData, { ...baseOptions, formats } as any);
+        const isPromise = r != null && typeof r === 'object' && typeof (r as any).then === 'function';
+        return isPromise ? await r : r;
+      };
+
+      const isValidResult = (r: any) =>
+        Array.isArray(r) && r.length > 0 && r[0] && r[0].isValid &&
+        typeof r[0].text === 'string';
+
+      // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
+      // original MultiFormatReader behavior. This avoids 1D false positives (e.g., RSS
+      // Expanded "(01)..." patterns) found in dense QR codes.
+      let results: any;
+      if (wasmFormats) {
+        results = await runWasm(wasmFormats);
+      } else {
+        results = await runWasm(['Matrix-Codes']);
+        if (!isValidResult(results)) {
+          results = await runWasm(['Linear-Codes']);
+        }
+      }
 
       if (!results) throw new NotFoundException();
 
