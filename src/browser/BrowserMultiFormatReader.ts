@@ -255,9 +255,12 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         return isPromise ? await r : r;
       };
 
+      // Also require a mappable format so that 2D codes outside our 15-entry mapping
+      // (e.g., MicroQRCode, rMQRCode, MaxiCode) do not block the Linear-Codes fallback.
       const isValidResult = (r: any) =>
         Array.isArray(r) && r.length > 0 && r[0] && r[0].isValid &&
-        typeof r[0].text === 'string';
+        typeof r[0].text === 'string' &&
+        WASM_FORMAT_TO_BARCODE_FORMAT[r[0].format] !== undefined;
 
       // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
       // original MultiFormatReader behavior. This avoids 1D false positives (e.g., RSS
