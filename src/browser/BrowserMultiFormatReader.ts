@@ -84,6 +84,18 @@ const BARCODE_FORMAT_TO_WASM: Record<number, string> = {
  */
 const DEFAULT_WASM_MAX_DIMENSION = 640;
 
+/**
+ * Linear (1D) formats scanned by default when no POSSIBLE_FORMATS hint is set.
+ * Excludes DataBarExpanded because its detector is very permissive and
+ * produces spurious "(01)..." GS1 results from dense QR module noise.
+ * Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS hint.
+ */
+const DEFAULT_LINEAR_FORMATS: string[] = [
+  'Codabar', 'Code39', 'Code93', 'Code128',
+  'DataBar', 'EAN-8', 'EAN-13', 'ITF',
+  'UPC-A', 'UPC-E',
+];
+
 export class BrowserMultiFormatReader extends BrowserCodeReader {
 
   protected readonly reader: MultiFormatReader;
@@ -255,20 +267,25 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         return isPromise ? await r : r;
       };
 
+      // Also require a mappable format so that 2D codes outside our 15-entry mapping
+      // (e.g., MicroQRCode, rMQRCode, MaxiCode) do not block the Linear-Codes fallback.
       const isValidResult = (r: any) =>
         Array.isArray(r) && r.length > 0 && r[0] && r[0].isValid &&
-        typeof r[0].text === 'string';
+        typeof r[0].text === 'string' &&
+        WASM_FORMAT_TO_BARCODE_FORMAT[r[0].format] !== undefined;
 
       // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
-      // original MultiFormatReader behavior. This avoids 1D false positives (e.g., RSS
-      // Expanded "(01)..." patterns) found in dense QR codes.
+      // original MultiFormatReader behavior. This avoids 1D false positives in dense
+      // QR codes. Exclude DataBarExpanded from the default 1D fallback because its
+      // detector is very permissive and produces spurious "(01)..." GS1 results from
+      // QR module noise. Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS.
       let results: any;
       if (wasmFormats) {
         results = await runWasm(wasmFormats);
       } else {
         results = await runWasm(['Matrix-Codes']);
         if (!isValidResult(results)) {
-          results = await runWasm(['Linear-Codes']);
+          results = await runWasm(DEFAULT_LINEAR_FORMATS);
         }
       }
 
