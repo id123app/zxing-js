@@ -25,7 +25,7 @@ interface ZXingWasmReaderOptions {
 }
 
 /** Result from zxing-wasm readBarcodes function. */
-interface ZXingWasmResult {
+export interface ZXingWasmResult {
     isValid: boolean;
     error?: string;
     text: string;
