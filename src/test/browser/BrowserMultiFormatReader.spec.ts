@@ -165,6 +165,17 @@ describe('BrowserMultiFormatReader', () => {
       assert.isFalse(hasValidLinearGeometry(makeResult('EAN-13', nonFinite)));
     });
 
+    it('rejects 1D result with position object missing required corners', () => {
+      // position present but missing topRight — malformed data should not
+      // be silently bypassed for a linear format
+      const partial: any = {
+        topLeft: { x: 0, y: 0 },
+        bottomRight: { x: 100, y: 100 },
+        bottomLeft: { x: 0, y: 100 },
+      };
+      assert.isFalse(hasValidLinearGeometry(makeResult('Code128', partial)));
+    });
+
     it('accepts a 1D detection with mild camera-perspective tilt', () => {
       // Long horizontal box, bottom row shifted right by 8 of 100 height → corner
       // angle ≈ acos(8/√(8²+100²)) ≈ 85.4°, deviation ≈ 4.6° (within 10° tolerance)

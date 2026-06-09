@@ -122,11 +122,16 @@ const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
 
 /**
  * Returns true if the result has acceptable geometry to be accepted under a
- * default (no-hint) scan. Always true for 2D formats and for results without
- * position data. For 1D formats with position data, requires both:
- *   - the detection box to be visibly elongated (width / height >= MIN_LINEAR_ASPECT_RATIO)
- *   - the topLeft corner to be roughly perpendicular (within MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG of 90 degrees)
- * Degenerate position data (non-finite or zero dimensions) is treated as invalid.
+ * default (no-hint) scan. Always true for 2D formats and for results whose
+ * position field is entirely absent (the WASM library may legitimately omit
+ * it). For 1D formats with a position object present, requires both:
+ *   - the detection box to be visibly elongated (max(width, height) /
+ *     min(width, height) >= MIN_LINEAR_ASPECT_RATIO, orientation-independent)
+ *   - the topLeft corner to be roughly perpendicular (within
+ *     MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG of 90 degrees)
+ * A position object that exists but is missing any of the three corners
+ * used by the checks is treated as invalid geometry, as is degenerate
+ * (non-finite or zero) width/height.
  *
  * Only intended for the default-scan (no POSSIBLE_FORMATS hint) path. When the
  * caller has explicitly opted into a format set, callers may want to skip this
@@ -136,9 +141,13 @@ const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
 export function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
   if (!LINEAR_FORMAT_SET.has(result.format)) return true;
   const pos = result.position;
+  // No position object at all: the WASM library may legitimately omit it,
+  // so we cannot validate. Be permissive.
   if (!pos) return true;
+  // Position object exists but is missing any of the corners we need: this
+  // is malformed/partial data — treat as invalid for a linear format.
   const { topLeft, topRight, bottomLeft } = pos;
-  if (!topLeft || !topRight || !bottomLeft) return true;
+  if (!topLeft || !topRight || !bottomLeft) return false;
 
   const wdx = topRight.x - topLeft.x;
   const wdy = topRight.y - topLeft.y;
@@ -338,12 +347,18 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       const callerProvidedFormatsHint =
         Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
 
-      // If the caller explicitly set POSSIBLE_FORMATS but none of the requested
-      // formats are mappable to zxing-wasm (e.g., MAXICODE-only), do not silently
-      // fall through to the default WASM scan. That would return barcodes the
-      // caller did not request. Defer to the pure-TypeScript decoder, which
-      // respects the hint via the underlying MultiFormatReader.
-      if (callerProvidedFormatsHint && !wasmFormats) {
+      // If the caller explicitly set POSSIBLE_FORMATS and any of the requested
+      // formats are NOT mappable to zxing-wasm (e.g., MAXICODE), defer the entire
+      // decode to the pure-TypeScript decoder. The TS MultiFormatReader honors
+      // the full hint set, including formats zxing-wasm cannot decode. Otherwise
+      // the WASM path would silently drop unmappable formats from the scan and
+      // could either return an unrequested format (when no mappable formats are
+      // hinted) or fail to decode a legitimate barcode in an unmappable format
+      // that the caller explicitly requested.
+      if (
+        callerProvidedFormatsHint &&
+        (!wasmFormats || wasmFormats.length !== possibleFormatsHint!.length)
+      ) {
         return super.decodeAsync(element);
       }
 
