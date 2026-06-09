@@ -95,16 +95,12 @@ const DEFAULT_LINEAR_FORMATS: string[] = [
 ];
 
 /**
- * zxing-wasm format strings that are linear (1D) barcodes.
+ * zxing-wasm format strings that are linear (1D) barcodes. Derived from
+ * DEFAULT_LINEAR_FORMATS so the two stay in sync automatically.
  * Used to apply geometry validation to 1D results, since 1D detectors can
  * occasionally find spurious matches in dense 2D module noise.
  */
-const LINEAR_FORMAT_SET = new Set<string>([
-  'Codabar', 'Code39', 'Code93', 'Code128',
-  'DataBar', 'DataBarExpanded',
-  'EAN-8', 'EAN-13', 'ITF',
-  'UPC-A', 'UPC-E',
-]);
+const LINEAR_FORMAT_SET: Set<string> = new Set(DEFAULT_LINEAR_FORMATS);
 
 /**
  * A real 1D barcode the user is pointing the camera at has a wide-and-short
@@ -124,11 +120,17 @@ const MIN_LINEAR_ASPECT_RATIO = 1.5;
 const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
 
 /**
- * Returns true if the result has acceptable geometry. Always true for 2D
- * formats and for results without position data (we cannot validate). For
- * 1D formats with position data, requires both:
+ * Returns true if the result has acceptable geometry to be accepted under a
+ * default (no-hint) scan. Always true for 2D formats and for results without
+ * position data. For 1D formats with position data, requires both:
  *   - the detection box to be visibly elongated (width / height >= MIN_LINEAR_ASPECT_RATIO)
  *   - the topLeft corner to be roughly perpendicular (within MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG of 90 degrees)
+ * Degenerate position data (non-finite or zero dimensions) is treated as invalid.
+ *
+ * Only intended for the default-scan (no POSSIBLE_FORMATS hint) path. When the
+ * caller has explicitly opted into a format set, callers may want to skip this
+ * check (e.g., to allow legitimately non-elongated codes like stacked DataBar
+ * Expanded).
  */
 function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
   if (!LINEAR_FORMAT_SET.has(result.format)) return true;
@@ -145,8 +147,10 @@ function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
   const hdy = bottomLeft.y - topLeft.y;
   const height = Math.sqrt(hdx * hdx + hdy * hdy);
 
+  // Degenerate position data on a 1D format result is itself suspicious; reject
+  // rather than allow noise-driven matches through.
   if (!Number.isFinite(width) || !Number.isFinite(height) || width === 0 || height === 0) {
-    return true;
+    return false;
   }
 
   // Aspect ratio: width must dominate
@@ -371,11 +375,16 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         throw new NotFoundException();
       }
 
-      // Reject 1D results whose detection box is roughly square or taller-than-wide.
+      // Reject 1D results whose detection box is roughly square or heavily skewed.
       // These are noise-driven false positives from 2D module patterns (the QR code
-      // case the demo surfaced). Real 1D barcodes pointed at the camera always have
-      // a visibly elongated detection box.
-      if (!hasValidLinearGeometry(first)) {
+      // case the demo surfaced). Real 1D barcodes pointed at the camera form a
+      // visibly elongated, near-rectangular detection box.
+      //
+      // Only validate when no POSSIBLE_FORMATS hint was provided. When the caller
+      // has explicitly opted into a format set, trust them: this allows legitimately
+      // square or tall codes (e.g., stacked DataBar Expanded) to decode under an
+      // explicit hint without being rejected by the default-scan heuristic.
+      if (!wasmFormats && !hasValidLinearGeometry(first)) {
         throw new NotFoundException();
       }
 
