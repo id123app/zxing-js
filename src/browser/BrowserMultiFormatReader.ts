@@ -325,6 +325,14 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const wasmFormats = this.getWasmFormats();
 
+      // Whether the caller actually set POSSIBLE_FORMATS, regardless of whether
+      // any of the requested formats are mappable to zxing-wasm. Used to decide
+      // whether to apply the default-scan geometry heuristic below.
+      const possibleFormatsHint =
+        this._hints?.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[] | undefined;
+      const callerProvidedFormatsHint =
+        Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
+
       const baseOptions: ZXingWasmReaderOptions = {
         tryHarder: true,
         tryRotate: false,
@@ -380,11 +388,14 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       // case the demo surfaced). Real 1D barcodes pointed at the camera form a
       // visibly elongated, near-rectangular detection box.
       //
-      // Only validate when no POSSIBLE_FORMATS hint was provided. When the caller
-      // has explicitly opted into a format set, trust them: this allows legitimately
-      // square or tall codes (e.g., stacked DataBar Expanded) to decode under an
-      // explicit hint without being rejected by the default-scan heuristic.
-      if (!wasmFormats && !hasValidLinearGeometry(first)) {
+      // Only validate when the caller did NOT provide a POSSIBLE_FORMATS hint. When
+      // the caller has explicitly opted into a format set, trust them: this allows
+      // legitimately square or tall codes (e.g., stacked DataBar Expanded) to decode
+      // under an explicit hint without being rejected by the default-scan heuristic.
+      // Use the raw hint presence rather than `wasmFormats`, because `wasmFormats`
+      // can also be undefined when POSSIBLE_FORMATS is set but contains only formats
+      // that have no zxing-wasm mapping (e.g., MAXICODE).
+      if (!callerProvidedFormatsHint && !hasValidLinearGeometry(first)) {
         throw new NotFoundException();
       }
 
