@@ -86,15 +86,83 @@ const DEFAULT_WASM_MAX_DIMENSION = 640;
 
 /**
  * Linear (1D) formats scanned by default when no POSSIBLE_FORMATS hint is set.
- * Excludes DataBarExpanded because its detector is very permissive and
- * produces spurious "(01)..." GS1 results from dense QR module noise.
- * Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS hint.
  */
 const DEFAULT_LINEAR_FORMATS: string[] = [
   'Codabar', 'Code39', 'Code93', 'Code128',
-  'DataBar', 'EAN-8', 'EAN-13', 'ITF',
+  'DataBar', 'DataBarExpanded',
+  'EAN-8', 'EAN-13', 'ITF',
   'UPC-A', 'UPC-E',
 ];
+
+/**
+ * zxing-wasm format strings that are linear (1D) barcodes.
+ * Used to apply geometry validation to 1D results, since 1D detectors can
+ * occasionally find spurious matches in dense 2D module noise.
+ */
+const LINEAR_FORMAT_SET = new Set<string>([
+  'Codabar', 'Code39', 'Code93', 'Code128',
+  'DataBar', 'DataBarExpanded',
+  'EAN-8', 'EAN-13', 'ITF',
+  'UPC-A', 'UPC-E',
+]);
+
+/**
+ * A real 1D barcode the user is pointing the camera at has a wide-and-short
+ * detection box. False positives from 2D module noise have a roughly square
+ * (or near-square) detection box. Reject 1D results whose detected width is
+ * less than this multiple of the detected height.
+ */
+const MIN_LINEAR_ASPECT_RATIO = 1.5;
+
+/**
+ * A real 1D barcode detection forms a near-rectangle, so the corner at topLeft
+ * (between the top edge and the left edge) is close to 90 degrees even when
+ * captured at a camera angle. False positives from 2D module noise often form
+ * a heavily skewed parallelogram whose corners deviate far from perpendicular.
+ * Allow up to this many degrees of deviation from 90.
+ */
+const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
+
+/**
+ * Returns true if the result has acceptable geometry. Always true for 2D
+ * formats and for results without position data (we cannot validate). For
+ * 1D formats with position data, requires both:
+ *   - the detection box to be visibly elongated (width / height >= MIN_LINEAR_ASPECT_RATIO)
+ *   - the topLeft corner to be roughly perpendicular (within MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG of 90 degrees)
+ */
+function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
+  if (!LINEAR_FORMAT_SET.has(result.format)) return true;
+  const pos = result.position;
+  if (!pos) return true;
+  const { topLeft, topRight, bottomLeft } = pos;
+  if (!topLeft || !topRight || !bottomLeft) return true;
+
+  const wdx = topRight.x - topLeft.x;
+  const wdy = topRight.y - topLeft.y;
+  const width = Math.sqrt(wdx * wdx + wdy * wdy);
+
+  const hdx = bottomLeft.x - topLeft.x;
+  const hdy = bottomLeft.y - topLeft.y;
+  const height = Math.sqrt(hdx * hdx + hdy * hdy);
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width === 0 || height === 0) {
+    return true;
+  }
+
+  // Aspect ratio: width must dominate
+  if (width / height < MIN_LINEAR_ASPECT_RATIO) return false;
+
+  // Corner angle at topLeft: angle between the top edge and the left edge.
+  // For a real (possibly perspective-distorted) rectangle this is near 90 deg.
+  const dot = wdx * hdx + wdy * hdy;
+  const cosAngle = dot / (width * height);
+  // Clamp to [-1, 1] to defend against floating point drift
+  const clamped = Math.max(-1, Math.min(1, cosAngle));
+  const angleDeg = Math.acos(clamped) * 180 / Math.PI;
+  if (Math.abs(angleDeg - 90) > MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG) return false;
+
+  return true;
+}
 
 export class BrowserMultiFormatReader extends BrowserCodeReader {
 
@@ -276,9 +344,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
       // original MultiFormatReader behavior. This avoids 1D false positives in dense
-      // QR codes. Exclude DataBarExpanded from the default 1D fallback because its
-      // detector is very permissive and produces spurious "(01)..." GS1 results from
-      // QR module noise. Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS.
+      // QR codes.
       let results: any;
       if (wasmFormats) {
         results = await runWasm(wasmFormats);
@@ -302,6 +368,14 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const barcodeFormat = WASM_FORMAT_TO_BARCODE_FORMAT[first.format];
       if (barcodeFormat === undefined) {
+        throw new NotFoundException();
+      }
+
+      // Reject 1D results whose detection box is roughly square or taller-than-wide.
+      // These are noise-driven false positives from 2D module patterns (the QR code
+      // case the demo surfaced). Real 1D barcodes pointed at the camera always have
+      // a visibly elongated detection box.
+      if (!hasValidLinearGeometry(first)) {
         throw new NotFoundException();
       }
 
