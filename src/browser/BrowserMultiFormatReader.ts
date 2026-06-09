@@ -103,10 +103,11 @@ const DEFAULT_LINEAR_FORMATS: string[] = [
 const LINEAR_FORMAT_SET: Set<string> = new Set(DEFAULT_LINEAR_FORMATS);
 
 /**
- * A real 1D barcode the user is pointing the camera at has a wide-and-short
- * detection box. False positives from 2D module noise have a roughly square
- * (or near-square) detection box. Reject 1D results whose detected width is
- * less than this multiple of the detected height.
+ * A real 1D barcode the user is pointing the camera at has a clearly elongated
+ * detection box (long edge dominates the short edge). False positives from 2D
+ * module noise have a roughly square (or near-square) detection box. Reject 1D
+ * results whose long-side / short-side ratio is below this. Orientation-
+ * independent: applies whether the barcode is captured landscape or portrait.
  */
 const MIN_LINEAR_ASPECT_RATIO = 1.5;
 
@@ -132,7 +133,7 @@ const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
  * check (e.g., to allow legitimately non-elongated codes like stacked DataBar
  * Expanded).
  */
-function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
+export function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
   if (!LINEAR_FORMAT_SET.has(result.format)) return true;
   const pos = result.position;
   if (!pos) return true;
@@ -153,8 +154,12 @@ function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
     return false;
   }
 
-  // Aspect ratio: width must dominate
-  if (width / height < MIN_LINEAR_ASPECT_RATIO) return false;
+  // Aspect ratio: one side must dominate the other. Orientation-independent so
+  // a 1D barcode rotated 90 degrees (long edge along topLeft->bottomLeft) is
+  // still accepted.
+  const longSide = Math.max(width, height);
+  const shortSide = Math.min(width, height);
+  if (longSide / shortSide < MIN_LINEAR_ASPECT_RATIO) return false;
 
   // Corner angle at topLeft: angle between the top edge and the left edge.
   // For a real (possibly perspective-distorted) rectangle this is near 90 deg.
@@ -332,6 +337,15 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         this._hints?.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[] | undefined;
       const callerProvidedFormatsHint =
         Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
+
+      // If the caller explicitly set POSSIBLE_FORMATS but none of the requested
+      // formats are mappable to zxing-wasm (e.g., MAXICODE-only), do not silently
+      // fall through to the default WASM scan. That would return barcodes the
+      // caller did not request. Defer to the pure-TypeScript decoder, which
+      // respects the hint via the underlying MultiFormatReader.
+      if (callerProvidedFormatsHint && !wasmFormats) {
+        return super.decodeAsync(element);
+      }
 
       const baseOptions: ZXingWasmReaderOptions = {
         tryHarder: true,
