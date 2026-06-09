@@ -86,13 +86,14 @@ const DEFAULT_WASM_MAX_DIMENSION = 640;
 
 /**
  * Linear (1D) formats scanned by default when no POSSIBLE_FORMATS hint is set.
- * Excludes DataBarExpanded because its detector is very permissive and
- * produces spurious "(01)..." GS1 results from dense QR module noise.
- * Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS hint.
+ * Excludes the DataBar family (DataBar/RSS-14 and DataBarExpanded) because
+ * their detectors are very permissive and produce spurious "(01)..." GS1 GTIN
+ * results from dense QR module noise. Callers that need DataBar/RSS support
+ * can opt in via POSSIBLE_FORMATS hint (RSS_14 or RSS_EXPANDED).
  */
 const DEFAULT_LINEAR_FORMATS: string[] = [
   'Codabar', 'Code39', 'Code93', 'Code128',
-  'DataBar', 'EAN-8', 'EAN-13', 'ITF',
+  'EAN-8', 'EAN-13', 'ITF',
   'UPC-A', 'UPC-E',
 ];
 
