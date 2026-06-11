@@ -1,5 +1,6 @@
 import { assert } from 'chai';
-import { BrowserMultiFormatReader, hasValidLinearGeometry } from '../../browser/BrowserMultiFormatReader';
+import { BrowserMultiFormatReader } from '../../browser/BrowserMultiFormatReader';
+import { hasValidLinearGeometry } from '../../browser/internal/wasmLinearGeometry';
 import DecodeHintType from '../../core/DecodeHintType';
 import BarcodeFormat from '../../core/BarcodeFormat';
 
