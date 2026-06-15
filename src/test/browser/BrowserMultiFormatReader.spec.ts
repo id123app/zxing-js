@@ -1,19 +1,14 @@
 import { assert } from 'chai';
 import { BrowserMultiFormatReader } from '../../browser/BrowserMultiFormatReader';
-import { hasValidLinearGeometry } from '../../browser/internal/wasmLinearGeometry';
+import { hasValidLinearGeometry, ZXingWasmResult } from '../../browser/internal/wasmLinearGeometry';
 import DecodeHintType from '../../core/DecodeHintType';
 import BarcodeFormat from '../../core/BarcodeFormat';
 
 /** Build a fake ZXingWasmResult-like object for hasValidLinearGeometry tests. */
 function makeResult(
   format: string,
-  position?: {
-    topLeft: { x: number; y: number };
-    topRight: { x: number; y: number };
-    bottomRight: { x: number; y: number };
-    bottomLeft: { x: number; y: number };
-  } | undefined,
-): any {
+  position?: ZXingWasmResult['position'],
+): ZXingWasmResult {
   return { isValid: true, text: 'x', format, position };
 }
 

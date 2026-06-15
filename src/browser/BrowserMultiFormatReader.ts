@@ -14,6 +14,12 @@ import { readBarcodes } from 'zxing-wasm/reader';
 // Ensure WASM locateFile override is configured exactly once
 import './wasmSetup';
 
+import {
+  DEFAULT_LINEAR_FORMATS,
+  hasValidLinearGeometry,
+  ZXingWasmResult,
+} from './internal/wasmLinearGeometry';
+
 /** Options for zxing-wasm readBarcodes function. */
 interface ZXingWasmReaderOptions {
     formats?: string[];
@@ -23,12 +29,6 @@ interface ZXingWasmReaderOptions {
     tryDownscale?: boolean;
     maxNumberOfSymbols?: number;
 }
-
-import {
-  DEFAULT_LINEAR_FORMATS,
-  hasValidLinearGeometry,
-  ZXingWasmResult,
-} from './internal/wasmLinearGeometry';
 
 /** Mapping from zxing-wasm format strings to BarcodeFormat enum values */
 const WASM_FORMAT_TO_BARCODE_FORMAT: Record<string, BarcodeFormat> = {
@@ -250,10 +250,15 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       // could either return an unrequested format (when no mappable formats are
       // hinted) or fail to decode a legitimate barcode in an unmappable format
       // that the caller explicitly requested.
-      if (
+      //
+      // Check each hinted format against the format map directly, rather than
+      // relying on a length comparison between possibleFormatsHint and
+      // wasmFormats: that comparison would be wrong if getWasmFormats() ever
+      // started normalizing or deduping its input.
+      const hasUnmappableHintedFormat =
         callerProvidedFormatsHint &&
-        (!wasmFormats || wasmFormats.length !== possibleFormatsHint!.length)
-      ) {
+        possibleFormatsHint!.some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined);
+      if (hasUnmappableHintedFormat) {
         return super.decodeAsync(element);
       }
 
@@ -265,7 +270,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         maxNumberOfSymbols: 1,
       };
 
-      const runWasm = async (formats: string[]): Promise<any> => {
+      const runWasm = async (formats: readonly string[]): Promise<any> => {
         const r = readBarcodes(imageData, { ...baseOptions, formats } as any);
         const isPromise = r != null && typeof r === 'object' && typeof (r as any).then === 'function';
         return isPromise ? await r : r;

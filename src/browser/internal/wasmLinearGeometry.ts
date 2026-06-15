@@ -30,20 +30,36 @@ export interface ZXingWasmResult {
  * Linear (1D) zxing-wasm format strings scanned by default when no
  * POSSIBLE_FORMATS hint is set. Single source of truth for the default 1D
  * fallback list.
+ *
+ * `DataBar` and `DataBarExpanded` (RSS-14 and RSS Expanded) are included here.
+ * Earlier in this PR's history they were temporarily removed because their
+ * permissive detectors produced spurious GS1 "(01)..." matches inside dense
+ * QR module patterns. They are now safe to include because the
+ * `hasValidLinearGeometry` check below rejects 1D detections whose box is
+ * roughly square or heavily skewed — the geometric signature of those
+ * noise-driven false positives. The product team requires DataBar support
+ * for the live demo, so removing them from the default scan is not an
+ * acceptable workaround.
+ *
+ * Exported as `readonly string[]` to prevent accidental mutation.
  */
-export const DEFAULT_LINEAR_FORMATS: string[] = [
+export const DEFAULT_LINEAR_FORMATS: readonly string[] = Object.freeze([
   'Codabar', 'Code39', 'Code93', 'Code128',
   'DataBar', 'DataBarExpanded',
   'EAN-8', 'EAN-13', 'ITF',
   'UPC-A', 'UPC-E',
-];
+]);
 
 /**
  * zxing-wasm format strings that are linear (1D) barcodes. Derived from
  * DEFAULT_LINEAR_FORMATS so the two cannot drift out of sync.
  * Used to gate the geometry validation to 1D results only.
+ *
+ * Exposed as `ReadonlySet<string>` so callers cannot mutate the shared set
+ * (the underlying Set is still mutable at the runtime level; this is a
+ * type-level guarantee against accidental writes via the export).
  */
-export const LINEAR_FORMAT_SET: Set<string> = new Set(DEFAULT_LINEAR_FORMATS);
+export const LINEAR_FORMAT_SET: ReadonlySet<string> = new Set(DEFAULT_LINEAR_FORMATS);
 
 /**
  * A real 1D barcode the user is pointing the camera at has a clearly elongated
