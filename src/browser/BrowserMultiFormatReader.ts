@@ -25,6 +25,7 @@ interface ZXingWasmReaderOptions {
 }
 
 import {
+  DEFAULT_LINEAR_FORMATS,
   hasValidLinearGeometry,
   ZXingWasmResult,
 } from './internal/wasmLinearGeometry';
@@ -74,16 +75,6 @@ const BARCODE_FORMAT_TO_WASM: Record<number, string> = {
  * 640px is sufficient for all common barcode types from camera.
  */
 const DEFAULT_WASM_MAX_DIMENSION = 640;
-
-/**
- * Linear (1D) formats scanned by default when no POSSIBLE_FORMATS hint is set.
- */
-const DEFAULT_LINEAR_FORMATS: string[] = [
-  'Codabar', 'Code39', 'Code93', 'Code128',
-  'DataBar', 'DataBarExpanded',
-  'EAN-8', 'EAN-13', 'ITF',
-  'UPC-A', 'UPC-E',
-];
 
 
 export class BrowserMultiFormatReader extends BrowserCodeReader {

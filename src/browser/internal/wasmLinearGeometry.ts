@@ -27,15 +27,23 @@ export interface ZXingWasmResult {
 }
 
 /**
- * zxing-wasm format strings that are linear (1D) barcodes.
- * Used to gate the geometry validation to 1D results only.
+ * Linear (1D) zxing-wasm format strings scanned by default when no
+ * POSSIBLE_FORMATS hint is set. Single source of truth for the default 1D
+ * fallback list.
  */
-export const LINEAR_FORMAT_SET: Set<string> = new Set<string>([
+export const DEFAULT_LINEAR_FORMATS: string[] = [
   'Codabar', 'Code39', 'Code93', 'Code128',
   'DataBar', 'DataBarExpanded',
   'EAN-8', 'EAN-13', 'ITF',
   'UPC-A', 'UPC-E',
-]);
+];
+
+/**
+ * zxing-wasm format strings that are linear (1D) barcodes. Derived from
+ * DEFAULT_LINEAR_FORMATS so the two cannot drift out of sync.
+ * Used to gate the geometry validation to 1D results only.
+ */
+export const LINEAR_FORMAT_SET: Set<string> = new Set(DEFAULT_LINEAR_FORMATS);
 
 /**
  * A real 1D barcode the user is pointing the camera at has a clearly elongated
