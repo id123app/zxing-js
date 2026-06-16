@@ -31,17 +31,20 @@ export interface ZXingWasmResult {
  * POSSIBLE_FORMATS hint is set. Single source of truth for the default 1D
  * fallback list.
  *
- * `DataBar` and `DataBarExpanded` (RSS-14 and RSS Expanded) are included here.
- * Earlier in this PR's history they were temporarily removed because their
- * permissive detectors produced spurious GS1 "(01)..." matches inside dense
- * QR module patterns. They are now safe to include because the
- * `hasValidLinearGeometry` check below rejects 1D detections whose box is
- * roughly square or heavily skewed — the geometric signature of those
- * noise-driven false positives. The product team requires DataBar support
- * for the live demo, so removing them from the default scan is not an
- * acceptable workaround.
+ * Includes the DataBar family (`DataBar` / RSS-14 and `DataBarExpanded` /
+ * RSS Expanded). Those detectors are permissive enough that they can match
+ * spurious GS1 patterns inside dense 2D module noise (notably QR codes),
+ * which is why `hasValidLinearGeometry` below additionally rejects 1D
+ * detections whose bounding box is roughly square or heavily skewed: the
+ * geometric signature of those noise-driven matches. Trade-off: stacked
+ * variants of DataBar Expanded that legitimately fit a non-elongated box
+ * will not decode under the default no-hint scan. Callers that need
+ * stacked-DataBar Expanded support should pass a `POSSIBLE_FORMATS` hint
+ * including `BarcodeFormat.RSS_EXPANDED`, which bypasses the geometry
+ * check.
  *
- * Exported as `readonly string[]` to prevent accidental mutation.
+ * Exported as `readonly string[]` (and frozen at runtime) to prevent
+ * accidental mutation.
  */
 export const DEFAULT_LINEAR_FORMATS: readonly string[] = Object.freeze([
   'Codabar', 'Code39', 'Code93', 'Code128',
@@ -92,10 +95,12 @@ export const MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG = 10;
  * by the checks is treated as invalid geometry, as is degenerate (non-finite
  * or zero) width/height.
  *
- * Only intended for the default-scan (no POSSIBLE_FORMATS hint) path. When
- * the caller has explicitly opted into a format set, callers may want to skip
- * this check (e.g., to allow legitimately non-elongated codes like stacked
- * DataBar Expanded).
+ * Only intended for the default-scan (no POSSIBLE_FORMATS hint) path. The
+ * gating logic in `BrowserMultiFormatReader.decodeAsync` skips this check
+ * when the caller has explicitly opted into a format set via
+ * `POSSIBLE_FORMATS`, so callers that need to decode legitimately
+ * non-elongated codes (e.g., stacked DataBar Expanded) can do so by passing
+ * the appropriate hint.
  */
 export function hasValidLinearGeometry(result: ZXingWasmResult): boolean {
   if (!LINEAR_FORMAT_SET.has(result.format)) return true;

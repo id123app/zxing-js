@@ -242,14 +242,11 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       const callerProvidedFormatsHint =
         Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
 
-      // If the caller explicitly set POSSIBLE_FORMATS and any of the requested
-      // formats are NOT mappable to zxing-wasm (e.g., MAXICODE), defer the entire
-      // decode to the pure-TypeScript decoder. The TS MultiFormatReader honors
-      // the full hint set, including formats zxing-wasm cannot decode. Otherwise
-      // the WASM path would silently drop unmappable formats from the scan and
-      // could either return an unrequested format (when no mappable formats are
-      // hinted) or fail to decode a legitimate barcode in an unmappable format
-      // that the caller explicitly requested.
+      // Whether the caller's POSSIBLE_FORMATS hint contains any format that is
+      // not mappable to zxing-wasm (e.g., MAXICODE). When this is the case the
+      // WASM path can only handle the mappable subset of the hint; the
+      // unmappable formats can still be decoded by the pure-TypeScript
+      // MultiFormatReader, which honors the full hint set.
       //
       // Check each hinted format against the format map directly, rather than
       // relying on a length comparison between possibleFormatsHint and
@@ -258,7 +255,15 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       const hasUnmappableHintedFormat =
         callerProvidedFormatsHint &&
         possibleFormatsHint!.some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined);
-      if (hasUnmappableHintedFormat) {
+
+      // If the hint has unmappable formats AND no mappable subset, the WASM
+      // path has nothing it can try, so defer immediately to the TS decoder.
+      // If a mappable subset exists, fall through and let WASM attempt the
+      // mappable subset first (faster for the common case where the matching
+      // barcode is in the mappable subset); when WASM finds nothing the catch
+      // block below will then defer to the TS decoder so the unmappable
+      // formats still get a chance.
+      if (callerProvidedFormatsHint && !wasmFormats) {
         return super.decodeAsync(element);
       }
 
@@ -333,7 +338,20 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       return new Result(first.text, null, 0, points ?? [], barcodeFormat);
     } catch (e) {
-      if (e instanceof NotFoundException) throw e;
+      if (e instanceof NotFoundException) {
+        // When the caller's POSSIBLE_FORMATS hint includes formats the WASM
+        // layer cannot decode (e.g., MAXICODE), give the TS decoder a chance
+        // to handle them before propagating. The TS MultiFormatReader honors
+        // the full hint set.
+        if (
+          Array.isArray(this._hints?.get(DecodeHintType.POSSIBLE_FORMATS)) &&
+          (this._hints!.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[])
+            .some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined)
+        ) {
+          return super.decodeAsync(element);
+        }
+        throw e;
+      }
       // Distinguish security errors (CORS) — these won't be fixed by falling back
       if (e instanceof DOMException && e.name === 'SecurityError') {
         this._wasmCanvas = null;
