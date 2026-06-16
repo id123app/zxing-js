@@ -270,23 +270,24 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         maxNumberOfSymbols: 1,
       };
 
-      const runWasm = async (formats: readonly string[]): Promise<any> => {
+      const runWasm = async (formats: readonly string[]): Promise<ZXingWasmResult[]> => {
         const r = readBarcodes(imageData, { ...baseOptions, formats } as any);
         const isPromise = r != null && typeof r === 'object' && typeof (r as any).then === 'function';
-        return isPromise ? await r : r;
+        const resolved = isPromise ? await r : r;
+        return Array.isArray(resolved) ? resolved as ZXingWasmResult[] : [];
       };
 
       // Also require a mappable format so that 2D codes outside our 15-entry mapping
       // (e.g., MicroQRCode, rMQRCode, MaxiCode) do not block the Linear-Codes fallback.
-      const isValidResult = (r: any) =>
-        Array.isArray(r) && r.length > 0 && r[0] && r[0].isValid &&
+      const isValidResult = (r: ZXingWasmResult[]): boolean =>
+        r.length > 0 && !!r[0] && r[0].isValid &&
         typeof r[0].text === 'string' &&
         WASM_FORMAT_TO_BARCODE_FORMAT[r[0].format] !== undefined;
 
       // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
       // original MultiFormatReader behavior. This avoids 1D false positives in dense
       // QR codes.
-      let results: any;
+      let results: ZXingWasmResult[];
       if (wasmFormats) {
         results = await runWasm(wasmFormats);
       } else {
@@ -296,12 +297,9 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         }
       }
 
-      if (!results) throw new NotFoundException();
+      if (results.length === 0) throw new NotFoundException();
 
-      const resultsArray = Array.isArray(results) ? results : [results];
-      if (resultsArray.length === 0) throw new NotFoundException();
-
-      const first = resultsArray[0] as ZXingWasmResult;
+      const first: ZXingWasmResult = results[0];
       if (!first || !first.isValid) throw new NotFoundException();
       if (first.text === null || first.text === undefined || typeof first.text !== 'string') {
         throw new NotFoundException();

@@ -56,13 +56,11 @@ export const DEFAULT_LINEAR_FORMATS: readonly string[] = Object.freeze([
 /**
  * zxing-wasm format strings that are linear (1D) barcodes. Derived from
  * DEFAULT_LINEAR_FORMATS so the two cannot drift out of sync.
- * Used to gate the geometry validation to 1D results only.
- *
- * Exposed as `ReadonlySet<string>` so callers cannot mutate the shared set
- * (the underlying Set is still mutable at the runtime level; this is a
- * type-level guarantee against accidental writes via the export).
+ * Used internally by `hasValidLinearGeometry` to gate the geometry
+ * validation to 1D results only. Module-private (not exported) so callers
+ * cannot mutate the shared Set at runtime.
  */
-export const LINEAR_FORMAT_SET: ReadonlySet<string> = new Set(DEFAULT_LINEAR_FORMATS);
+const LINEAR_FORMAT_SET: ReadonlySet<string> = new Set(DEFAULT_LINEAR_FORMATS);
 
 /**
  * A real 1D barcode the user is pointing the camera at has a clearly elongated

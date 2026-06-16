@@ -183,5 +183,30 @@ describe('BrowserMultiFormatReader', () => {
       };
       assert.isTrue(hasValidLinearGeometry(makeResult('Code128', tilted)));
     });
+
+    it('accepts a 1D detection with aspect ratio exactly at the MIN_LINEAR_ASPECT_RATIO threshold (1.5)', () => {
+      // width=150, height=100 → ratio exactly 1.5. Check is "< 1.5" → 1.5 must pass.
+      const onThreshold = {
+        topLeft: { x: 0, y: 0 },
+        topRight: { x: 150, y: 0 },
+        bottomRight: { x: 150, y: 100 },
+        bottomLeft: { x: 0, y: 100 },
+      };
+      assert.isTrue(hasValidLinearGeometry(makeResult('Code128', onThreshold)));
+    });
+
+    it('accepts a 1D detection with corner deviation exactly at the MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG threshold (10°)', () => {
+      // Construct a height vector of magnitude 100 at exactly 80° to the width
+      // vector → corner deviation from 90° is exactly 10°. Check is
+      // "> MAX_LINEAR_CORNER_ANGLE_DEVIATION_DEG" → 10 must pass.
+      const rad = (80 * Math.PI) / 180;
+      const onThreshold = {
+        topLeft: { x: 0, y: 0 },
+        topRight: { x: 300, y: 0 },
+        bottomLeft: { x: 100 * Math.cos(rad), y: 100 * Math.sin(rad) },
+        bottomRight: { x: 300 + 100 * Math.cos(rad), y: 100 * Math.sin(rad) },
+      };
+      assert.isTrue(hasValidLinearGeometry(makeResult('Code128', onThreshold)));
+    });
   });
 });
