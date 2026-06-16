@@ -258,7 +258,11 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       // barcode is in the mappable subset); when WASM finds nothing the catch
       // block below will then defer to the TS decoder so the unmappable
       // formats still get a chance.
-      if (callerProvidedFormatsHint && !wasmFormats) {
+      //
+      // Treat both `undefined` and an empty array as "no mappable subset" so
+      // the check matches the documented intent even if `getWasmFormats()`
+      // ever changes its empty-state representation.
+      if (callerProvidedFormatsHint && (!wasmFormats || wasmFormats.length === 0)) {
         return super.decodeAsync(element);
       }
 
@@ -271,10 +275,16 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       };
 
       const runWasm = async (formats: readonly string[]): Promise<ZXingWasmResult[]> => {
-        const r = readBarcodes(imageData, { ...baseOptions, formats } as any);
-        const isPromise = r != null && typeof r === 'object' && typeof (r as any).then === 'function';
-        const resolved = isPromise ? await r : r;
-        return Array.isArray(resolved) ? resolved as ZXingWasmResult[] : [];
+        const raw: any = readBarcodes(imageData, { ...baseOptions, formats } as any);
+        const isPromise = raw != null && typeof raw === 'object' && typeof raw.then === 'function';
+        const resolved: any = isPromise ? await raw : raw;
+        // readBarcodes may return either an array of results or, in some
+        // bindings, a single result object. Normalize both to an array so
+        // downstream code can treat the shape uniformly. Anything else
+        // (null/undefined/primitive) is treated as no result.
+        if (Array.isArray(resolved)) return resolved as ZXingWasmResult[];
+        if (resolved && typeof resolved === 'object') return [resolved as ZXingWasmResult];
+        return [];
       };
 
       // Also require a mappable format so that 2D codes outside our 15-entry mapping
