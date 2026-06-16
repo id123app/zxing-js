@@ -14,6 +14,12 @@ import { readBarcodes } from 'zxing-wasm/reader';
 // Ensure WASM locateFile override is configured exactly once
 import './wasmSetup';
 
+import {
+  DEFAULT_LINEAR_FORMATS,
+  hasValidLinearGeometry,
+  ZXingWasmResult,
+} from './internal/wasmLinearGeometry';
+
 /** Options for zxing-wasm readBarcodes function. */
 interface ZXingWasmReaderOptions {
     formats?: string[];
@@ -22,20 +28,6 @@ interface ZXingWasmReaderOptions {
     tryInvert?: boolean;
     tryDownscale?: boolean;
     maxNumberOfSymbols?: number;
-}
-
-/** Result from zxing-wasm readBarcodes function. */
-interface ZXingWasmResult {
-    isValid: boolean;
-    error?: string;
-    text: string;
-    format: string;
-    position?: {
-        topLeft: { x: number; y: number };
-        topRight: { x: number; y: number };
-        bottomRight: { x: number; y: number };
-        bottomLeft: { x: number; y: number };
-    };
 }
 
 /** Mapping from zxing-wasm format strings to BarcodeFormat enum values */
@@ -84,17 +76,6 @@ const BARCODE_FORMAT_TO_WASM: Record<number, string> = {
  */
 const DEFAULT_WASM_MAX_DIMENSION = 640;
 
-/**
- * Linear (1D) formats scanned by default when no POSSIBLE_FORMATS hint is set.
- * Excludes DataBarExpanded because its detector is very permissive and
- * produces spurious "(01)..." GS1 results from dense QR module noise.
- * Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS hint.
- */
-const DEFAULT_LINEAR_FORMATS: string[] = [
-  'Codabar', 'Code39', 'Code93', 'Code128',
-  'DataBar', 'EAN-8', 'EAN-13', 'ITF',
-  'UPC-A', 'UPC-E',
-];
 
 export class BrowserMultiFormatReader extends BrowserCodeReader {
 
@@ -203,6 +184,23 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       return super.decodeAsync(element);
     }
 
+    // Hint flags are derived from this._hints only, so they're stable for the
+    // duration of this call. Hoist them above the try block so both the try
+    // path (early TS fallback for hints with no mappable subset, geometry-check
+    // skip on explicit hints) and the catch path (NotFound -> TS fallback when
+    // the hint includes formats WASM cannot decode) can share them.
+    const possibleFormatsHint =
+      this._hints?.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[] | undefined;
+    const callerProvidedFormatsHint =
+      Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
+    // Check each hinted format against the format map directly, rather than
+    // relying on a length comparison between possibleFormatsHint and
+    // wasmFormats: that comparison would be wrong if getWasmFormats() ever
+    // started normalizing or deduping its input.
+    const hasUnmappableHintedFormat =
+      callerProvidedFormatsHint &&
+      possibleFormatsHint!.some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined);
+
     try {
       // Get source dimensions
       let srcWidth: number;
@@ -253,6 +251,23 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const wasmFormats = this.getWasmFormats();
 
+      // If the caller provided POSSIBLE_FORMATS but none of those formats are
+      // mappable to zxing-wasm (e.g., a MAXICODE-only hint), the WASM path has
+      // nothing to scan, so defer the entire decode to the pure-TS
+      // MultiFormatReader, which honors the full hint set. When a mappable
+      // subset DOES exist (mixed hint), fall through and let WASM attempt the
+      // mappable subset first (fast path); the catch block below will then
+      // defer to the TS decoder if WASM finds nothing, so the unmappable
+      // formats still get a chance.
+      //
+      // Treat both `undefined` and an empty array as "no mappable subset" so
+      // the check matches the documented intent even if `getWasmFormats()`
+      // ever changes its empty-state representation.
+      const noMappableSubset = !wasmFormats || wasmFormats.length === 0;
+      if (callerProvidedFormatsHint && noMappableSubset) {
+        return super.decodeAsync(element);
+      }
+
       const baseOptions: ZXingWasmReaderOptions = {
         tryHarder: true,
         tryRotate: false,
@@ -261,25 +276,30 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         maxNumberOfSymbols: 1,
       };
 
-      const runWasm = async (formats: string[]): Promise<any> => {
-        const r = readBarcodes(imageData, { ...baseOptions, formats } as any);
-        const isPromise = r != null && typeof r === 'object' && typeof (r as any).then === 'function';
-        return isPromise ? await r : r;
+      const runWasm = async (formats: readonly string[]): Promise<ZXingWasmResult[]> => {
+        const raw: any = readBarcodes(imageData, { ...baseOptions, formats } as any);
+        const isPromise = raw != null && typeof raw === 'object' && typeof raw.then === 'function';
+        const resolved: any = isPromise ? await raw : raw;
+        // readBarcodes may return either an array of results or, in some
+        // bindings, a single result object. Normalize both to an array so
+        // downstream code can treat the shape uniformly. Anything else
+        // (null/undefined/primitive) is treated as no result.
+        if (Array.isArray(resolved)) return resolved as ZXingWasmResult[];
+        if (resolved && typeof resolved === 'object') return [resolved as ZXingWasmResult];
+        return [];
       };
 
       // Also require a mappable format so that 2D codes outside our 15-entry mapping
       // (e.g., MicroQRCode, rMQRCode, MaxiCode) do not block the Linear-Codes fallback.
-      const isValidResult = (r: any) =>
-        Array.isArray(r) && r.length > 0 && r[0] && r[0].isValid &&
+      const isValidResult = (r: ZXingWasmResult[]): boolean =>
+        r.length > 0 && !!r[0] && r[0].isValid &&
         typeof r[0].text === 'string' &&
         WASM_FORMAT_TO_BARCODE_FORMAT[r[0].format] !== undefined;
 
       // When scanning all formats, prefer 2D (Matrix) over 1D (Linear) to mirror the
       // original MultiFormatReader behavior. This avoids 1D false positives in dense
-      // QR codes. Exclude DataBarExpanded from the default 1D fallback because its
-      // detector is very permissive and produces spurious "(01)..." GS1 results from
-      // QR module noise. Callers that need RSS Expanded can opt in via POSSIBLE_FORMATS.
-      let results: any;
+      // QR codes.
+      let results: ZXingWasmResult[];
       if (wasmFormats) {
         results = await runWasm(wasmFormats);
       } else {
@@ -289,12 +309,9 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         }
       }
 
-      if (!results) throw new NotFoundException();
+      if (results.length === 0) throw new NotFoundException();
 
-      const resultsArray = Array.isArray(results) ? results : [results];
-      if (resultsArray.length === 0) throw new NotFoundException();
-
-      const first = resultsArray[0] as ZXingWasmResult;
+      const first: ZXingWasmResult = results[0];
       if (!first || !first.isValid) throw new NotFoundException();
       if (first.text === null || first.text === undefined || typeof first.text !== 'string') {
         throw new NotFoundException();
@@ -305,12 +322,37 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         throw new NotFoundException();
       }
 
+      // Reject 1D results whose detection box is roughly square or heavily skewed.
+      // These are noise-driven false positives from 2D module patterns (the QR code
+      // case the demo surfaced). Real 1D barcodes pointed at the camera form a
+      // visibly elongated, near-rectangular detection box.
+      //
+      // Only validate when the caller did NOT provide a POSSIBLE_FORMATS hint. When
+      // the caller has explicitly opted into a format set, trust them: this allows
+      // legitimately square or tall codes (e.g., stacked DataBar Expanded) to decode
+      // under an explicit hint without being rejected by the default-scan heuristic.
+      // Use the raw hint presence rather than `wasmFormats`, because `wasmFormats`
+      // can also be undefined when POSSIBLE_FORMATS is set but contains only formats
+      // that have no zxing-wasm mapping (e.g., MAXICODE).
+      if (!callerProvidedFormatsHint && !hasValidLinearGeometry(first)) {
+        throw new NotFoundException();
+      }
+
       // Extract points and scale back to original video resolution
       const points = BrowserMultiFormatReader.extractResultPoints(first, scale);
 
       return new Result(first.text, null, 0, points ?? [], barcodeFormat);
     } catch (e) {
-      if (e instanceof NotFoundException) throw e;
+      if (e instanceof NotFoundException) {
+        // When the caller's POSSIBLE_FORMATS hint includes formats the WASM
+        // layer cannot decode (e.g., MAXICODE), give the TS decoder a chance
+        // to handle them before propagating. The TS MultiFormatReader honors
+        // the full hint set.
+        if (hasUnmappableHintedFormat) {
+          return super.decodeAsync(element);
+        }
+        throw e;
+      }
       // Distinguish security errors (CORS) — these won't be fixed by falling back
       if (e instanceof DOMException && e.name === 'SecurityError') {
         this._wasmCanvas = null;
