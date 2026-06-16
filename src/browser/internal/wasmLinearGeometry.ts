@@ -14,16 +14,16 @@
 
 /** Result from zxing-wasm readBarcodes function. Internal mirror only. */
 export interface ZXingWasmResult {
-    isValid: boolean;
-    error?: string;
-    text: string;
-    format: string;
-    position?: {
-        topLeft: { x: number; y: number };
-        topRight: { x: number; y: number };
-        bottomRight: { x: number; y: number };
-        bottomLeft: { x: number; y: number };
-    };
+  isValid: boolean;
+  error?: string;
+  text: string;
+  format: string;
+  position?: {
+    topLeft: { x: number; y: number };
+    topRight: { x: number; y: number };
+    bottomRight: { x: number; y: number };
+    bottomLeft: { x: number; y: number };
+  };
 }
 
 /**

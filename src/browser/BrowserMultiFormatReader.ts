@@ -251,18 +251,20 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
 
       const wasmFormats = this.getWasmFormats();
 
-      // If the hint has unmappable formats AND no mappable subset, the WASM
-      // path has nothing it can try, so defer immediately to the TS decoder.
-      // If a mappable subset exists, fall through and let WASM attempt the
-      // mappable subset first (faster for the common case where the matching
-      // barcode is in the mappable subset); when WASM finds nothing the catch
-      // block below will then defer to the TS decoder so the unmappable
+      // If the caller provided POSSIBLE_FORMATS but none of those formats are
+      // mappable to zxing-wasm (e.g., a MAXICODE-only hint), the WASM path has
+      // nothing to scan, so defer the entire decode to the pure-TS
+      // MultiFormatReader, which honors the full hint set. When a mappable
+      // subset DOES exist (mixed hint), fall through and let WASM attempt the
+      // mappable subset first (fast path); the catch block below will then
+      // defer to the TS decoder if WASM finds nothing, so the unmappable
       // formats still get a chance.
       //
       // Treat both `undefined` and an empty array as "no mappable subset" so
       // the check matches the documented intent even if `getWasmFormats()`
       // ever changes its empty-state representation.
-      if (callerProvidedFormatsHint && (!wasmFormats || wasmFormats.length === 0)) {
+      const noMappableSubset = !wasmFormats || wasmFormats.length === 0;
+      if (callerProvidedFormatsHint && noMappableSubset) {
         return super.decodeAsync(element);
       }
 
