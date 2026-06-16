@@ -184,6 +184,23 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       return super.decodeAsync(element);
     }
 
+    // Hint flags are derived from this._hints only, so they're stable for the
+    // duration of this call. Hoist them above the try block so both the try
+    // path (early TS fallback for hints with no mappable subset, geometry-check
+    // skip on explicit hints) and the catch path (NotFound -> TS fallback when
+    // the hint includes formats WASM cannot decode) can share them.
+    const possibleFormatsHint =
+      this._hints?.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[] | undefined;
+    const callerProvidedFormatsHint =
+      Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
+    // Check each hinted format against the format map directly, rather than
+    // relying on a length comparison between possibleFormatsHint and
+    // wasmFormats: that comparison would be wrong if getWasmFormats() ever
+    // started normalizing or deduping its input.
+    const hasUnmappableHintedFormat =
+      callerProvidedFormatsHint &&
+      possibleFormatsHint!.some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined);
+
     try {
       // Get source dimensions
       let srcWidth: number;
@@ -233,28 +250,6 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
       }
 
       const wasmFormats = this.getWasmFormats();
-
-      // Whether the caller actually set POSSIBLE_FORMATS, regardless of whether
-      // any of the requested formats are mappable to zxing-wasm. Used to decide
-      // whether to apply the default-scan geometry heuristic below.
-      const possibleFormatsHint =
-        this._hints?.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[] | undefined;
-      const callerProvidedFormatsHint =
-        Array.isArray(possibleFormatsHint) && possibleFormatsHint.length > 0;
-
-      // Whether the caller's POSSIBLE_FORMATS hint contains any format that is
-      // not mappable to zxing-wasm (e.g., MAXICODE). When this is the case the
-      // WASM path can only handle the mappable subset of the hint; the
-      // unmappable formats can still be decoded by the pure-TypeScript
-      // MultiFormatReader, which honors the full hint set.
-      //
-      // Check each hinted format against the format map directly, rather than
-      // relying on a length comparison between possibleFormatsHint and
-      // wasmFormats: that comparison would be wrong if getWasmFormats() ever
-      // started normalizing or deduping its input.
-      const hasUnmappableHintedFormat =
-        callerProvidedFormatsHint &&
-        possibleFormatsHint!.some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined);
 
       // If the hint has unmappable formats AND no mappable subset, the WASM
       // path has nothing it can try, so defer immediately to the TS decoder.
@@ -343,11 +338,7 @@ export class BrowserMultiFormatReader extends BrowserCodeReader {
         // layer cannot decode (e.g., MAXICODE), give the TS decoder a chance
         // to handle them before propagating. The TS MultiFormatReader honors
         // the full hint set.
-        if (
-          Array.isArray(this._hints?.get(DecodeHintType.POSSIBLE_FORMATS)) &&
-          (this._hints!.get(DecodeHintType.POSSIBLE_FORMATS) as BarcodeFormat[])
-            .some((fmt) => BARCODE_FORMAT_TO_WASM[fmt] === undefined)
-        ) {
+        if (hasUnmappableHintedFormat) {
           return super.decodeAsync(element);
         }
         throw e;
