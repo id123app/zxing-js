@@ -60,6 +60,9 @@ export default class ByteMatrix {
 
     // TYPESCRIPTPORT: preffer to let two methods instead of override to avoid type comparison inside
     public setNumber(x: number /*int*/, y: number /*int*/, value: number/*byte|int*/): void {
+        if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0 || x >= this.width || y >= this.height) {
+            throw new RangeError('x/y out of bounds');
+        }
         this.bytes[y][x] = value;
     }
 
@@ -68,6 +71,9 @@ export default class ByteMatrix {
     // }
 
     public setBoolean(x: number /*int*/, y: number /*int*/, value: boolean): void {
+        if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0 || x >= this.width || y >= this.height) {
+            throw new RangeError('x/y out of bounds');
+        }
         this.bytes[y][x] = /*(byte) */(value ? 1 : 0);
     }
 
